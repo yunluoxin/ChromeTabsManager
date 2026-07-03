@@ -6,15 +6,21 @@
     <title>Chrome Tab Manager</title>
     <link rel="stylesheet" href="src/styles.css">
   </head>
-  <body>
+  <body data-mode="by-age">
     <main class="dashboard-shell">
       <header class="hero">
         <div>
           <p class="eyebrow">Chrome History Tab Manager</p>
-          <h1>按时间整理当前打开的标签</h1>
+          <h1>整理当前打开的标签</h1>
           <p id="dashboardSummary" class="muted">正在读取标签…</p>
         </div>
-        <button id="refresh">刷新</button>
+        <div class="hero-actions">
+          <div id="modeToggle" class="mode-toggle" role="tablist" aria-label="排列模式">
+            <button type="button" data-mode="by-age" role="tab" aria-selected="true">按时间</button>
+            <button type="button" data-mode="by-window" role="tab" aria-selected="false">按窗口</button>
+          </div>
+          <button id="refresh">刷新</button>
+        </div>
       </header>
 
       <section class="toolbar">
@@ -47,6 +53,10 @@
           <button id="bookmarkSelected">收藏选中</button>
           <button id="discardSelected">释放内存</button>
           <button id="closeSelected" class="danger">关闭选中</button>
+        </div>
+        <div class="move-controls" data-mode-only="by-window">
+          <select id="moveSelectedTo" aria-label="目标窗口"></select>
+          <button id="moveSelected">移动选中…</button>
         </div>
       </section>
 

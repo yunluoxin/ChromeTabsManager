@@ -1,13 +1,19 @@
 import { formatActionSummary } from "./action-summary.js";
 
+const GROUPING_MODES = { BY_AGE: "by-age", BY_WINDOW: "by-window" };
+const MODE_STORAGE_KEY = "dashboardMode";
+
 const state = {
   tabs: [],
   groups: [],
   currentWindowId: null,
-  selectedTabIds: new Set()
+  selectedTabIds: new Set(),
+  mode: GROUPING_MODES.BY_AGE,
+  windows: []
 };
 
 const elements = {
+  body: document.body,
   summary: document.querySelector("#dashboardSummary"),
   status: document.querySelector("#dashboardStatus"),
   groups: document.querySelector("#tabGroups"),
@@ -22,14 +28,19 @@ const elements = {
   discardSelected: document.querySelector("#discardSelected"),
   closeSelected: document.querySelector("#closeSelected"),
   bookmarkMode: document.querySelector("#bookmarkMode"),
-  folderName: document.querySelector("#folderName")
+  folderName: document.querySelector("#folderName"),
+  modeToggle: document.querySelector("#modeToggle"),
+  moveSelectedTo: document.querySelector("#moveSelectedTo"),
+  moveSelected: document.querySelector("#moveSelected")
 };
 
 init();
 
 async function init() {
+  state.mode = readStoredMode();
+  applyModeAttribute();
   bindEvents();
-  await loadTabs();
+  await Promise.all([loadTabs(), loadWindows()]);
 }
 
 function bindEvents() {
@@ -46,36 +57,125 @@ function bindEvents() {
   elements.bookmarkSelected.addEventListener("click", () => runSelectedAction("bookmarkTabs"));
   elements.discardSelected.addEventListener("click", () => runSelectedAction("discardTabs"));
   elements.closeSelected.addEventListener("click", () => runSelectedAction("closeTabs"));
+  elements.moveSelected.addEventListener("click", runSelectedMove);
   elements.groups.addEventListener("change", handleGroupChange);
   elements.groups.addEventListener("click", handleGroupClick);
+  elements.groups.addEventListener("dragstart", handleDragStart);
+  elements.groups.addEventListener("dragend", handleDragEnd);
+  elements.groups.addEventListener("dragover", handleDragOver);
+  elements.groups.addEventListener("dragleave", handleDragLeave);
+  elements.groups.addEventListener("drop", handleDrop);
+  elements.modeToggle.addEventListener("click", handleModeToggle);
 }
 
-async function loadTabs({ preserveStatus = false } = {}) {
-  setStatus("正在读取标签…");
-  const payload = await sendMessage({ type: "getTabs" });
-  state.tabs = payload.tabs;
-  state.groups = payload.groups;
-  state.currentWindowId = payload.currentWindowId;
-  state.selectedTabIds = new Set([...state.selectedTabIds].filter((tabId) => state.tabs.some((tab) => tab.tabId === tabId)));
-  render();
-  if (!preserveStatus) {
-    setStatus("");
+function handleModeToggle(event) {
+  const button = event.target.closest("button[data-mode]");
+  if (!button) return;
+  const nextMode = button.dataset.mode;
+  if (nextMode === state.mode) return;
+  state.mode = nextMode;
+  persistMode(nextMode);
+  applyModeAttribute();
+  loadTabs();
+}
+
+function applyModeAttribute() {
+  elements.body.dataset.mode = state.mode;
+  for (const button of elements.modeToggle.querySelectorAll("button[data-mode]")) {
+    button.setAttribute("aria-selected", String(button.dataset.mode === state.mode));
   }
+}
+
+function readStoredMode() {
+  try {
+    const stored = sessionStorage.getItem(MODE_STORAGE_KEY);
+    return stored === GROUPING_MODES.BY_WINDOW ? GROUPING_MODES.BY_WINDOW : GROUPING_MODES.BY_AGE;
+  } catch {
+    return GROUPING_MODES.BY_AGE;
+  }
+}
+
+function persistMode(mode) {
+  try {
+    sessionStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    /* sessionStorage may be unavailable; ignore. */
+  }
+}
+
+async function loadTabs({ silent = false } = {}) {
+  if (!silent) setStatus("正在读取标签…");
+  try {
+    const payload = await sendMessage({ type: "getTabs", mode: state.mode });
+    state.tabs = payload.tabs;
+    state.groups = payload.groups;
+    state.currentWindowId = payload.currentWindowId;
+    state.selectedTabIds = new Set([...state.selectedTabIds].filter((tabId) => state.tabs.some((tab) => tab.tabId === tabId)));
+    render();
+  } finally {
+    if (!silent) setStatus("");
+  }
+}
+
+async function loadWindows() {
+  try {
+    state.windows = await sendMessage({ type: "getWindows" });
+  } catch {
+    state.windows = [];
+  }
+  renderWindowOptions();
+}
+
+function renderWindowOptions() {
+  const current = state.currentWindowId;
+  const seenIds = new Set();
+  const candidates = [];
+  for (const windowGroup of state.groups) {
+    if (windowGroup.windowId == null) continue;
+    if (seenIds.has(windowGroup.windowId)) continue;
+    seenIds.add(windowGroup.windowId);
+    candidates.push({
+      windowId: windowGroup.windowId,
+      label: windowGroup.label
+    });
+  }
+  for (const win of state.windows) {
+    if (seenIds.has(win.id)) continue;
+    seenIds.add(win.id);
+    candidates.push({ windowId: win.id, label: formatWindowLabel(win.id, current) });
+  }
+
+  elements.moveSelectedTo.innerHTML = candidates
+    .map(({ windowId, label }) => {
+      const disabled = windowId === current ? "disabled" : "";
+      return `<option value="${windowId}" ${disabled}>${escapeHtml(label)}</option>`;
+    })
+    .join("");
+}
+
+function formatWindowLabel(windowId, currentWindowId) {
+  const current = windowId === currentWindowId ? " · 当前" : "";
+  return `窗口 #${windowId}${current}`;
 }
 
 function render() {
   const visibleTabs = getVisibleTabs();
-  elements.summary.textContent = `全部 ${state.tabs.length} 个 · 可见 ${visibleTabs.length} 个 · 已选 ${state.selectedTabIds.size} 个`;
+  const modeLabel = state.mode === GROUPING_MODES.BY_WINDOW ? "窗口" : "时间";
+  elements.summary.textContent = `全部 ${state.tabs.length} 个 · 可见 ${visibleTabs.length} 个 · 已选 ${state.selectedTabIds.size} 个 · 排列 ${modeLabel}`;
 
   const groups = groupVisibleTabs(visibleTabs);
   elements.groups.innerHTML = groups.length
     ? groups.map(renderGroup).join("")
     : `<div class="empty">没有匹配的标签。</div>`;
+
+  renderWindowOptions();
 }
 
 function renderGroup(group) {
+  const draggableAttrs = state.mode === GROUPING_MODES.BY_WINDOW ? `data-window-id="${group.windowId}"` : "";
+  const dragHint = state.mode === GROUPING_MODES.BY_WINDOW ? `title="拖到其它窗口即可移动"` : "";
   return `
-    <article class="tab-group">
+    <article class="tab-group" ${draggableAttrs} ${dragHint}>
       <header class="group-header">
         <div>
           <h2>${escapeHtml(group.label)}</h2>
@@ -100,8 +200,9 @@ function renderTab(tab) {
   const disabled = tab.isExtensionOwned && !elements.includeExtensionTabs.checked ? "disabled" : "";
   const sourceLabel = tab.ageSource === "recorded" ? "真实记录" : tab.ageSource === "estimated" ? "历史估算" : "未知";
   const icon = tab.favIconUrl ? `<img src="${escapeAttribute(tab.favIconUrl)}" alt="">` : `<span class="favicon-fallback">•</span>`;
+  const draggable = state.mode === GROUPING_MODES.BY_WINDOW && !tab.isExtensionOwned ? `draggable="true"` : "";
   return `
-    <div class="tab-row ${tab.isExtensionOwned ? "protected" : ""}">
+    <div class="tab-row ${tab.isExtensionOwned ? "protected" : ""}" data-tab-id="${tab.tabId}" ${draggable}>
       <input type="checkbox" data-tab-id="${tab.tabId}" ${checked} ${disabled}>
       ${icon}
       <span class="tab-main">
@@ -235,8 +336,124 @@ async function runAction(type, tabIds, { confirmAction = true } = {}) {
 
   setStatus("执行中…");
   const result = await sendMessage(message);
-  await loadTabs({ preserveStatus: true });
+  await loadTabs({ silent: true });
   setStatus(formatActionSummary(result));
+}
+
+async function runSelectedMove() {
+  if (state.mode !== GROUPING_MODES.BY_WINDOW) {
+    setStatus("切换到「按窗口」模式才能移动标签。");
+    return;
+  }
+  const tabIds = [...state.selectedTabIds].filter((tabId) => {
+    const tab = state.tabs.find((entry) => entry.tabId === tabId);
+    return tab && !tab.isExtensionOwned;
+  });
+  if (tabIds.length === 0) {
+    setStatus("没有可移动的非扩展标签。");
+    return;
+  }
+  const targetWindowId = Number(elements.moveSelectedTo.value);
+  if (!Number.isFinite(targetWindowId)) {
+    setStatus("请选择目标窗口。");
+    return;
+  }
+  await runMove(tabIds, targetWindowId);
+}
+
+async function runMove(tabIds, targetWindowId) {
+  setStatus("执行中…");
+  const result = await sendMessage({ type: "moveTabs", tabIds, targetWindowId });
+  await Promise.all([loadTabs({ silent: true }), loadWindows()]);
+  setStatus(`移动完成：${formatActionSummary(result)}`);
+}
+
+function handleDragStart(event) {
+  if (state.mode !== GROUPING_MODES.BY_WINDOW) return;
+  const row = event.target.closest(".tab-row");
+  if (!row || !row.hasAttribute("draggable")) return;
+  const draggedTabId = Number(row.dataset.tabId);
+  const draggedTab = state.tabs.find((tab) => tab.tabId === draggedTabId);
+  if (!draggedTab || draggedTab.isExtensionOwned) {
+    event.preventDefault();
+    return;
+  }
+
+  let tabIds;
+  if (state.selectedTabIds.has(draggedTabId) && state.selectedTabIds.size > 1) {
+    // Drag the whole selection (non-extension only).
+    tabIds = [...state.selectedTabIds].filter((id) => {
+      const tab = state.tabs.find((entry) => entry.tabId === id);
+      return tab && !tab.isExtensionOwned;
+    });
+  } else {
+    // Drag just this row. Don't re-render here: rebuilding the tab groups
+    // mid-drag would tear down the dragged element and kill the drag.
+    tabIds = [draggedTabId];
+  }
+
+  if (tabIds.length === 0) {
+    event.preventDefault();
+    return;
+  }
+
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/x-tab-ids", JSON.stringify(tabIds));
+  event.dataTransfer.setData("text/plain", tabIds.join(","));
+}
+
+function handleDragEnd() {
+  for (const element of elements.groups.querySelectorAll(".tab-group.drag-over")) {
+    element.classList.remove("drag-over");
+  }
+}
+
+function handleDragOver(event) {
+  if (state.mode !== GROUPING_MODES.BY_WINDOW) return;
+  const group = event.target.closest(".tab-group");
+  if (!group || !group.dataset.windowId) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  group.classList.add("drag-over");
+}
+
+function handleDragLeave(event) {
+  const group = event.target.closest(".tab-group");
+  if (!group) return;
+  if (event.relatedTarget && group.contains(event.relatedTarget)) return;
+  group.classList.remove("drag-over");
+}
+
+async function handleDrop(event) {
+  if (state.mode !== GROUPING_MODES.BY_WINDOW) return;
+  const group = event.target.closest(".tab-group");
+  if (!group) return;
+  event.preventDefault();
+  group.classList.remove("drag-over");
+
+  const targetWindowId = Number(group.dataset.windowId);
+  if (!Number.isFinite(targetWindowId)) return;
+
+  const raw = event.dataTransfer.getData("application/x-tab-ids");
+  let tabIds = [];
+  if (raw) {
+    try {
+      tabIds = JSON.parse(raw);
+    } catch {
+      tabIds = [];
+    }
+  }
+  if (!tabIds.length) {
+    const fallback = event.dataTransfer.getData("text/plain");
+    if (fallback) tabIds = fallback.split(",").map((entry) => Number(entry)).filter((entry) => Number.isFinite(entry));
+  }
+  tabIds = tabIds.filter((tabId) => {
+    const tab = state.tabs.find((entry) => entry.tabId === tabId);
+    return tab && !tab.isExtensionOwned && tab.windowId !== targetWindowId;
+  });
+  if (tabIds.length === 0) return;
+
+  await runMove(tabIds, targetWindowId);
 }
 
 function setStatus(message) {

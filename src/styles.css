@@ -292,9 +292,13 @@ small {
 }
 
 .row-actions {
+  /* Hover overlay: sits on top of the trailing portion of the title area.
+   * Offset `right` enough that even when 3 badges (source + 固定 + 已释放)
+   * are visible, the toolbar lands just to their left instead of covering them.
+   */
   position: absolute;
   top: 50%;
-  right: 1rem;
+  right: 8.5rem;
   z-index: 3;
   display: inline-flex;
   gap: 0.3rem;
@@ -352,6 +356,70 @@ small {
   border-radius: 20px;
   color: var(--muted);
   text-align: center;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-strong);
+}
+
+.mode-toggle button {
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mode-toggle button[aria-selected="true"] {
+  background: var(--accent);
+  color: white;
+}
+
+.move-controls {
+  display: none;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+body[data-mode="by-window"] .move-controls {
+  display: inline-flex;
+}
+
+body[data-mode="by-window"] .tab-row {
+  cursor: grab;
+}
+
+body[data-mode="by-window"] .tab-row:active {
+  cursor: grabbing;
+}
+
+.tab-group {
+  outline: 2px dashed transparent;
+  outline-offset: -6px;
+  transition: outline-color 120ms ease, background-color 120ms ease;
+}
+
+body[data-mode="by-window"] .tab-group.drag-over {
+  outline-color: var(--accent);
+  background: rgba(49, 92, 250, 0.06);
+}
+
+
+
+body[data-mode="by-age"] .move-controls {
+  display: none !important;
 }
 
 @media (min-width: 820px) {

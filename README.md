@@ -8,6 +8,7 @@ A lightweight Chrome MV3 extension for managing currently open tabs by age group
 - Full dashboard for search, selection, and group actions.
 - Hybrid age strategy: recorded open time after install, history-based estimate for existing tabs.
 - Bulk close, bookmark, and memory release via `chrome.tabs.discard`.
+- Dashboard supports two arrangements: **by age** (default) and **by Chrome window**. In window mode you can also drag a tab onto another window to move it, or pick a target window from the bulk panel to move the current selection.
 
 ## Install Locally
 
