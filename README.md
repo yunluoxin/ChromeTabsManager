@@ -15,7 +15,7 @@ A lightweight Chrome MV3 extension for managing currently open tabs by age group
 1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Click **Load unpacked**.
-4. Select this folder: `/Users/east/Documents/ChromeHistory`.
+4. Select this folder: the cloned project root.
 5. Pin the extension and open the popup.
 
 ## Development
