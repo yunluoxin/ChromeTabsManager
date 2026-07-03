@@ -18,9 +18,16 @@
 
       <section class="actions">
         <button id="openDashboard" class="primary">打开完整管理页</button>
-        <button id="bookmarkOld">收藏旧标签</button>
-        <button id="discardOld">释放旧标签内存</button>
-        <button id="closeOld" class="danger">关闭旧标签</button>
+        <button id="discardAll" class="action-button">
+          <span class="action-button__label">释放所有标签内存</span>
+          <span class="action-button__spinner" aria-hidden="true"></span>
+          <span class="action-button__check" aria-hidden="true">✓</span>
+        </button>
+        <button id="discardOld" class="action-button">
+          <span class="action-button__label">释放旧标签内存</span>
+          <span class="action-button__spinner" aria-hidden="true"></span>
+          <span class="action-button__check" aria-hidden="true">✓</span>
+        </button>
       </section>
 
       <p id="status" class="status"></p>

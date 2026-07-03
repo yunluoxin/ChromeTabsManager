@@ -12,9 +12,8 @@ const elements = {
   groups: document.querySelector("#groups"),
   status: document.querySelector("#status"),
   openDashboard: document.querySelector("#openDashboard"),
-  bookmarkOld: document.querySelector("#bookmarkOld"),
-  discardOld: document.querySelector("#discardOld"),
-  closeOld: document.querySelector("#closeOld")
+  discardAll: document.querySelector("#discardAll"),
+  discardOld: document.querySelector("#discardOld")
 };
 
 init();
@@ -26,9 +25,32 @@ async function init() {
 
 function bindEvents() {
   elements.openDashboard.addEventListener("click", () => sendMessage({ type: "openDashboard" }));
-  elements.bookmarkOld.addEventListener("click", () => actOnOldTabs("bookmarkTabs", "收藏旧标签？"));
-  elements.discardOld.addEventListener("click", () => actOnOldTabs("discardTabs", "释放旧标签内存？"));
-  elements.closeOld.addEventListener("click", () => actOnOldTabs("closeTabs", "关闭旧标签？这个操作不可撤销。"));
+  elements.discardAll.addEventListener("click", () => discardAllTabs());
+  elements.discardOld.addEventListener("click", () => discardOldTabs());
+}
+
+const resetTimers = new WeakMap();
+const SUCCESS_DURATION_MS = 1400;
+
+function setButtonState(button, state) {
+  const pending = resetTimers.get(button);
+  if (pending) {
+    clearTimeout(pending);
+    resetTimers.delete(button);
+  }
+  button.classList.remove("is-loading", "is-success");
+  if (state === "loading") {
+    button.classList.add("is-loading");
+  } else if (state === "success") {
+    button.classList.add("is-success");
+    resetTimers.set(
+      button,
+      setTimeout(() => {
+        button.classList.remove("is-loading", "is-success");
+        resetTimers.delete(button);
+      }, SUCCESS_DURATION_MS)
+    );
+  }
 }
 
 async function loadTabs({ preserveStatus = false } = {}) {
@@ -51,29 +73,38 @@ function render() {
     .join("");
 }
 
-async function actOnOldTabs(type, confirmationText) {
-  const oldTabIds = state.groups
+async function discardAllTabs() {
+  const tabIds = state.tabs
+    .filter((tab) => !tab.isExtensionOwned)
+    .map((tab) => tab.tabId);
+  await runDiscard(elements.discardAll, tabIds, "没有可释放的标签。");
+}
+
+async function discardOldTabs() {
+  const tabIds = state.groups
     .filter((group) => isOldGroup(group.key))
     .flatMap((group) => group.tabs)
     .filter((tab) => !tab.isExtensionOwned)
     .map((tab) => tab.tabId);
+  await runDiscard(elements.discardOld, tabIds, "没有可处理的旧标签。");
+}
 
-  if (oldTabIds.length === 0) {
-    setStatus("没有可处理的旧标签。");
+async function runDiscard(button, tabIds, emptyMessage) {
+  if (tabIds.length === 0) {
+    setStatus(emptyMessage);
     return;
   }
 
-  if (type === "closeTabs" && !confirm(`${confirmationText}\n共 ${oldTabIds.length} 个标签。`)) {
-    return;
+  setButtonState(button, "loading");
+  try {
+    const result = await sendMessage({ type: "discardTabs", tabIds });
+    await loadTabs({ preserveStatus: true });
+    setStatus(formatActionSummary(result));
+    setButtonState(button, "success");
+  } catch (error) {
+    setButtonState(button, "idle");
+    throw error;
   }
-
-  const message = { type, tabIds: oldTabIds };
-  if (type === "bookmarkTabs") {
-    message.options = { mode: "folder" };
-  }
-  const result = await sendMessage(message);
-  await loadTabs({ preserveStatus: true });
-  setStatus(formatActionSummary(result));
 }
 
 function setStatus(message) {
