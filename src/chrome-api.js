@@ -71,3 +71,7 @@ export function searchHistory(query) {
 export function createTab(createProperties) {
   return callChrome(chrome.tabs.create.bind(chrome.tabs), createProperties);
 }
+
+export function createWindow(createData) {
+  return callChrome(chrome.windows.create.bind(chrome.windows), createData);
+}

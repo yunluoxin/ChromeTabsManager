@@ -2,6 +2,7 @@ import {
   bookmarkTabs,
   activateTab,
   closeTabs,
+  createWindowWithTabs,
   discardTabs,
   getTabGroups,
   listWindows,
@@ -54,6 +55,8 @@ async function handleMessage(message) {
       return discardTabs(message.tabIds || []);
     case "moveTabs":
       return moveTabsToWindow(message.tabIds || [], message.targetWindowId);
+    case "createWindowWithTabs":
+      return createWindowWithTabs(message.tabIds || []);
     case "openDashboard":
       return createTab({ url: chrome.runtime.getURL("dashboard.html") });
     case "activateTab":

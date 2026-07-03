@@ -1,4 +1,5 @@
 import { formatActionSummary } from "./action-summary.js";
+import { NewWindowDropZone } from "./new-window-drop-zone.js";
 
 const GROUPING_MODES = { BY_AGE: "by-age", BY_WINDOW: "by-window" };
 const MODE_STORAGE_KEY = "dashboardMode";
@@ -9,8 +10,11 @@ const state = {
   currentWindowId: null,
   selectedTabIds: new Set(),
   mode: GROUPING_MODES.BY_AGE,
-  windows: []
+  windows: [],
+  dragCount: 0
 };
+
+let newWindowDropZone = null;
 
 const elements = {
   body: document.body,
@@ -39,8 +43,17 @@ init();
 async function init() {
   state.mode = readStoredMode();
   applyModeAttribute();
+  attachNewWindowDropZone();
   bindEvents();
   await Promise.all([loadTabs(), loadWindows()]);
+}
+
+function attachNewWindowDropZone() {
+  newWindowDropZone = new NewWindowDropZone({
+    onDrop: runCreateWindowWithTabs,
+    getDraggedCount: () => state.dragCount
+  });
+  newWindowDropZone.attach();
 }
 
 function bindEvents() {
@@ -370,6 +383,18 @@ async function runMove(tabIds, targetWindowId) {
   setStatus(`移动完成：${formatActionSummary(result)}`);
 }
 
+async function runCreateWindowWithTabs(tabIds) {
+  if (!Array.isArray(tabIds) || tabIds.length === 0) return;
+  setStatus("正在创建新窗口…");
+  try {
+    const result = await sendMessage({ type: "createWindowWithTabs", tabIds });
+    await Promise.all([loadTabs({ silent: true }), loadWindows()]);
+    setStatus(`新窗口已建：${formatActionSummary(result)}`);
+  } catch (error) {
+    setStatus(`新建窗口失败：${error.message}`);
+  }
+}
+
 function handleDragStart(event) {
   if (state.mode !== GROUPING_MODES.BY_WINDOW) return;
   const row = event.target.closest(".tab-row");
@@ -402,6 +427,7 @@ function handleDragStart(event) {
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData("application/x-tab-ids", JSON.stringify(tabIds));
   event.dataTransfer.setData("text/plain", tabIds.join(","));
+  state.dragCount = tabIds.length;
 }
 
 function handleDragEnd() {

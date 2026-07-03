@@ -1,5 +1,6 @@
 import {
   createBookmark,
+  createWindow,
   discardTab,
   focusWindow,
   getCurrentWindow,
@@ -214,6 +215,63 @@ export async function moveTabsToWindow(tabIds, targetWindowId) {
     if (tab.windowId === safeTarget) throw new SkipTabError("已在目标窗口");
     await moveTabs([tabId], { windowId: safeTarget, index: -1 });
   });
+}
+
+export async function createWindowWithTabs(tabIds) {
+  const safeIds = (tabIds || []).map(Number).filter((id) => Number.isFinite(id));
+  const summary = createSummary();
+  if (safeIds.length === 0) {
+    summary.failed = 1;
+    summary.errors.push("没有要移动的标签");
+    return summary;
+  }
+
+  const allTabs = await queryTabs({});
+  const tabsById = new Map(allTabs.map((tab) => [tab.id, tab]));
+  const extensionOrigin = chrome.runtime.getURL("");
+
+  const validIds = [];
+  for (const tabId of safeIds) {
+    const tab = tabsById.get(tabId);
+    if (!tab) {
+      summary.failed += 1;
+      summary.errors.push(`#${tabId}: 标签不存在`);
+      continue;
+    }
+    if (tab.url?.startsWith(extensionOrigin)) {
+      summary.failed += 1;
+      summary.errors.push(`#${tabId}: 扩展页面已跳过`);
+      continue;
+    }
+    validIds.push(tabId);
+  }
+
+  if (validIds.length === 0) return summary;
+
+  let newWindow;
+  try {
+    // chrome.windows.create with tabId pulls the tab out of its source window
+    // and seeds the new window; the new window also receives focus by default,
+    // which matches the "drop creates a new visible window" expectation.
+    newWindow = await createWindow({ tabId: validIds[0] });
+  } catch (error) {
+    summary.failed += validIds.length;
+    summary.errors.push(`新建窗口失败: ${error.message}`);
+    return summary;
+  }
+  summary.succeeded += 1;
+
+  for (const tabId of validIds.slice(1)) {
+    try {
+      await moveTabs([tabId], { windowId: newWindow.id, index: -1 });
+      summary.succeeded += 1;
+    } catch (error) {
+      summary.failed += 1;
+      summary.errors.push(`#${tabId}: ${error.message}`);
+    }
+  }
+
+  return summary;
 }
 
 export async function listWindows() {
