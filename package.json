@@ -5,6 +5,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check src/age-grouping.js && node --check src/bookmark-planner.js && node --check src/action-summary.js && node --check src/chrome-api.js && node --check src/tab-service.js && node --check src/background.js && node --check src/popup.js && node --check src/dashboard.js"
+    "check": "node --check src/age-grouping.js && node --check src/window-grouping.js && node --check src/bookmark-planner.js && node --check src/action-summary.js && node --check src/chrome-api.js && node --check src/tab-service.js && node --check src/background.js && node --check src/popup.js && node --check src/dashboard.js"
   }
 }

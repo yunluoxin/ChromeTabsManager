@@ -4,7 +4,9 @@ import {
   focusWindow,
   getCurrentWindow,
   getFromStorage,
+  moveTabs,
   queryTabs,
+  queryWindows,
   removeTabs,
   searchHistory,
   setInStorage,
@@ -12,6 +14,12 @@ import {
 } from "./chrome-api.js";
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
+import { groupTabsByWindow } from "./window-grouping.js";
+
+export const GROUPING_MODES = Object.freeze({
+  BY_AGE: "by-age",
+  BY_WINDOW: "by-window"
+});
 
 const METADATA_KEY = "tabAgeMetadata";
 
@@ -117,12 +125,15 @@ export async function estimateMetadataForTab(tab) {
   };
 }
 
-export async function getTabGroups() {
+export async function getTabGroups({ mode = GROUPING_MODES.BY_AGE } = {}) {
   const metadata = await reconcileOpenTabs();
   const [tabs, currentWindow] = await Promise.all([queryTabs({}), getCurrentWindow().catch(() => null)]);
   const extensionOrigin = chrome.runtime.getURL("");
   const viewModels = tabs.map((tab) => createTabViewModel(tab, metadata[tab.id], currentWindow, extensionOrigin));
-  const groups = groupTabs(viewModels);
+
+  const groups = mode === GROUPING_MODES.BY_WINDOW
+    ? groupTabsByWindow(viewModels, { currentWindowId: currentWindow?.id ?? null })
+    : groupTabs(viewModels);
   const groupedTabs = groups.flatMap((group) => group.tabs);
 
   return {
@@ -179,6 +190,34 @@ export async function activateTab(tabId, windowId) {
     await focusWindow(windowId);
   }
   return { tabId, windowId };
+}
+
+export async function moveTabsToWindow(tabIds, targetWindowId) {
+  const safeIds = (tabIds || []).map(Number).filter((id) => Number.isFinite(id));
+  const safeTarget = Number(targetWindowId);
+  if (!Number.isFinite(safeTarget)) {
+    const summary = createSummary();
+    summary.failed = safeIds.length;
+    summary.errors.push("目标窗口无效");
+    return summary;
+  }
+
+  const allTabs = await queryTabs({});
+  const tabsById = new Map(allTabs.map((tab) => [tab.id, tab]));
+
+  return runPerTab(safeIds, async (tabId) => {
+    const tab = tabsById.get(tabId);
+    if (!tab) throw new SkipTabError("标签不存在");
+    if (tab.isExtensionOwned || tab.url?.startsWith(chrome.runtime.getURL(""))) {
+      throw new SkipTabError("扩展页面已跳过");
+    }
+    if (tab.windowId === safeTarget) throw new SkipTabError("已在目标窗口");
+    await moveTabs([tabId], { windowId: safeTarget, index: -1 });
+  });
+}
+
+export async function listWindows() {
+  return queryWindows({ populate: false });
 }
 
 export async function bookmarkTabs(tabIds, options = {}) {

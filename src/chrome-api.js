@@ -43,6 +43,23 @@ export function focusWindow(windowId) {
   return callChrome(chrome.windows.update.bind(chrome.windows), windowId, { focused: true });
 }
 
+export function moveTabs(tabIds, moveProperties) {
+  return callChrome(chrome.tabs.move.bind(chrome.tabs), tabIds, moveProperties);
+}
+
+export function queryWindows(queryInfo = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.windows.getAll(queryInfo, (result) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(result || []);
+    });
+  });
+}
+
 export function createBookmark(bookmark) {
   return callChrome(chrome.bookmarks.create.bind(chrome.bookmarks), bookmark);
 }

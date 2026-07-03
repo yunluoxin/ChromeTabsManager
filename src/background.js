@@ -4,6 +4,8 @@ import {
   closeTabs,
   discardTabs,
   getTabGroups,
+  listWindows,
+  moveTabsToWindow,
   reconcileOpenTabs,
   recordTabOpened,
   removeTabMetadata,
@@ -41,13 +43,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function handleMessage(message) {
   switch (message?.type) {
     case "getTabs":
-      return getTabGroups();
+      return getTabGroups({ mode: message.mode });
+    case "getWindows":
+      return listWindows();
     case "closeTabs":
       return closeTabs(message.tabIds || []);
     case "bookmarkTabs":
       return bookmarkTabs(message.tabIds || [], message.options || {});
     case "discardTabs":
       return discardTabs(message.tabIds || []);
+    case "moveTabs":
+      return moveTabsToWindow(message.tabIds || [], message.targetWindowId);
     case "openDashboard":
       return createTab({ url: chrome.runtime.getURL("dashboard.html") });
     case "activateTab":
