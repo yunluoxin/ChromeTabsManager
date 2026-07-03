@@ -324,7 +324,6 @@ async function runAction(type, tabIds, { confirmAction = true } = {}) {
   }
 
   if (confirmAction && type === "closeTabs" && !confirm(`关闭 ${tabIds.length} 个标签？这个操作不可撤销。`)) return;
-  if (confirmAction && type === "discardTabs" && !confirm(`释放 ${tabIds.length} 个后台标签的内存？活动/固定标签会跳过。`)) return;
 
   const message = { type, tabIds };
   if (type === "bookmarkTabs") {

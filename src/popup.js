@@ -63,7 +63,7 @@ async function actOnOldTabs(type, confirmationText) {
     return;
   }
 
-  if ((type === "closeTabs" || oldTabIds.length > 10) && !confirm(`${confirmationText}\n共 ${oldTabIds.length} 个标签。`)) {
+  if (type === "closeTabs" && !confirm(`${confirmationText}\n共 ${oldTabIds.length} 个标签。`)) {
     return;
   }
 
