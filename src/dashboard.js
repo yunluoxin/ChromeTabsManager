@@ -130,19 +130,22 @@ function renderWindowOptions() {
   const current = state.currentWindowId;
   const seenIds = new Set();
   const candidates = [];
+  let number = 0;
   for (const windowGroup of state.groups) {
     if (windowGroup.windowId == null) continue;
     if (seenIds.has(windowGroup.windowId)) continue;
     seenIds.add(windowGroup.windowId);
+    number++;
     candidates.push({
       windowId: windowGroup.windowId,
-      label: windowGroup.label
+      label: formatWindowLabel(number, { isCurrent: windowGroup.windowId === current })
     });
   }
   for (const win of state.windows) {
     if (seenIds.has(win.id)) continue;
     seenIds.add(win.id);
-    candidates.push({ windowId: win.id, label: formatWindowLabel(win.id, current) });
+    number++;
+    candidates.push({ windowId: win.id, label: formatWindowLabel(number, { isCurrent: win.id === current }) });
   }
 
   elements.moveSelectedTo.innerHTML = candidates
@@ -153,9 +156,9 @@ function renderWindowOptions() {
     .join("");
 }
 
-function formatWindowLabel(windowId, currentWindowId) {
-  const current = windowId === currentWindowId ? " · 当前" : "";
-  return `窗口 #${windowId}${current}`;
+function formatWindowLabel(index, { isCurrent = false } = {}) {
+  if (index == null) return "未知窗口";
+  return `窗口${index}${isCurrent ? " · 当前" : ""}`;
 }
 
 function render() {

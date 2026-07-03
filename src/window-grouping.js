@@ -8,10 +8,9 @@
 // In addition, every group carries a `windowId` so the dashboard can
 // wire drag-and-drop targets and the "move selected" dropdown.
 
-export function formatWindowLabel(windowId, { currentWindowId } = {}) {
-  if (windowId == null) return "未知窗口";
-  const current = windowId === currentWindowId ? " · 当前" : "";
-  return `窗口 #${windowId}${current}`;
+export function formatWindowLabel(index, { isCurrent = false } = {}) {
+  if (index == null) return "未知窗口";
+  return `窗口${index}${isCurrent ? " · 当前" : ""}`;
 }
 
 export function groupTabsByWindow(tabs, { currentWindowId = null } = {}) {
@@ -22,24 +21,35 @@ export function groupTabsByWindow(tabs, { currentWindowId = null } = {}) {
     if (!byWindowId.has(windowId)) {
       byWindowId.set(windowId, {
         key: String(windowId),
-        label: formatWindowLabel(windowId, { currentWindowId }),
         windowId,
+        label: "未知窗口",
         tabs: []
       });
     }
     byWindowId.get(windowId).tabs.push({
       ...tab,
       groupKey: String(windowId),
-      groupLabel: formatWindowLabel(windowId, { currentWindowId })
+      groupLabel: "未知窗口"
     });
   }
 
   // Sort: current window first (so it sits at the top), then by windowId
   // ascending so the order is stable across reloads.
-  return [...byWindowId.values()].sort((a, b) => {
+  const sorted = [...byWindowId.values()].sort((a, b) => {
     const aCurrent = a.windowId === currentWindowId;
     const bCurrent = b.windowId === currentWindowId;
     if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
     return String(a.windowId).localeCompare(String(b.windowId), "en", { numeric: true });
   });
+
+  // Assign sequential labels (窗口1, 窗口2, ...) based on sorted position.
+  sorted.forEach((group, idx) => {
+    if (group.windowId == null) return;
+    const number = idx + 1;
+    const label = formatWindowLabel(number, { isCurrent: group.windowId === currentWindowId });
+    group.label = label;
+    for (const tab of group.tabs) tab.groupLabel = label;
+  });
+
+  return sorted;
 }

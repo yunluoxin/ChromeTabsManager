@@ -9,8 +9,8 @@ const TABS = [
 ];
 
 test("formats window labels with current marker", () => {
-  assert.equal(formatWindowLabel(42, {}), "窗口 #42");
-  assert.equal(formatWindowLabel(42, { currentWindowId: 42 }), "窗口 #42 · 当前");
+  assert.equal(formatWindowLabel(1, {}), "窗口1");
+  assert.equal(formatWindowLabel(2, { isCurrent: true }), "窗口2 · 当前");
   assert.equal(formatWindowLabel(null), "未知窗口");
 });
 
@@ -22,13 +22,20 @@ test("groups tabs by windowId and tags each tab", () => {
 
   const firstGroup = groups[0];
   assert.equal(firstGroup.key, "11");
-  assert.equal(firstGroup.label, "窗口 #11 · 当前");
+  assert.equal(firstGroup.label, "窗口1 · 当前");
   assert.equal(firstGroup.tabs.length, 2);
   assert.equal(firstGroup.tabs[0].groupKey, "11");
-  assert.equal(firstGroup.tabs[0].groupLabel, "窗口 #11 · 当前");
+  assert.equal(firstGroup.tabs[0].groupLabel, "窗口1 · 当前");
+
+  // non-current window keeps sequential numbering
+  assert.equal(groups[1].windowId, 22);
+  assert.equal(groups[1].label, "窗口2");
 });
 
 test("places the current window first", () => {
   const groups = groupTabsByWindow(TABS, { currentWindowId: 22 });
   assert.equal(groups[0].windowId, 22);
+  assert.equal(groups[0].label, "窗口1 · 当前");
+  assert.equal(groups[1].windowId, 11);
+  assert.equal(groups[1].label, "窗口2");
 });
