@@ -185,14 +185,17 @@ function collectWindowCandidates() {
     if (win.state) windowStates.set(win.id, win);
   }
 
-  // Stable ordering regardless of mode: current window first, then
-  // ascending by numeric windowId. This keeps the "窗口N" labels
-  // consistent across mode switches.
-  const sortedIds = [...windowIds].sort((a, b) => {
-    if (a === current && b !== current) return -1;
-    if (b === current && a !== current) return 1;
-    return Number(a) - Number(b);
-  });
+  // Sort purely by windowId ascending. We deliberately do NOT push the
+  // current window to the front here either — see groupTabsByWindow for
+  // the same reasoning. If `currentWindowId` changes between renders
+  // (it can, e.g. after a move focuses the destination), pushing it to
+  // the front would shuffle every other window's label number and break
+  // the dropdown's reverse-mapping (label → windowId) that the user
+  // relies on. Keeping a stable sort means window 10 is always "窗口1",
+  // window 20 is always "窗口2", etc., and "当前" just walks between them.
+  const sortedIds = [...windowIds].sort((a, b) =>
+    String(a).localeCompare(String(b), "en", { numeric: true })
+  );
 
   const candidates = sortedIds.map((windowId, idx) => ({
     windowId,

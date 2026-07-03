@@ -17,6 +17,9 @@ test("formats window labels with current marker", () => {
 test("groups tabs by windowId and tags each tab", () => {
   const groups = groupTabsByWindow(TABS, { currentWindowId: 11 });
 
+  // Sort is by windowId ascending regardless of current — labels are
+  // a stable reverse-mapping from windowId so dropdown selections don't
+  // jump around when the current window changes (see bug report).
   const windows = groups.map((group) => group.windowId);
   assert.deepEqual(windows, [11, 22]);
 
@@ -27,17 +30,26 @@ test("groups tabs by windowId and tags each tab", () => {
   assert.equal(firstGroup.tabs[0].groupKey, "11");
   assert.equal(firstGroup.tabs[0].groupLabel, "窗口1 · 当前");
 
-  // non-current window keeps sequential numbering
+  // Non-current window keeps its position-based numbering
   assert.equal(groups[1].windowId, 22);
   assert.equal(groups[1].label, "窗口2");
 });
 
-test("places the current window first", () => {
-  const groups = groupTabsByWindow(TABS, { currentWindowId: 22 });
-  assert.equal(groups[0].windowId, 22);
-  assert.equal(groups[0].label, "窗口1 · 当前");
-  assert.equal(groups[1].windowId, 11);
-  assert.equal(groups[1].label, "窗口2");
+test("labels stay tied to windowId when current window changes", () => {
+  // The bug: previously, the current window was sorted first, so flipping
+  // currentWindowId between renders re-numbered every other window. With
+  // the stable sort, window 11 is always "窗口1" and window 22 is always
+  // "窗口2"; only the " · 当前" marker moves.
+  const groupsAs11 = groupTabsByWindow(TABS, { currentWindowId: 11 });
+  const groupsAs22 = groupTabsByWindow(TABS, { currentWindowId: 22 });
+  assert.deepEqual(
+    groupsAs11.map((g) => [g.windowId, g.label]),
+    [[11, "窗口1 · 当前"], [22, "窗口2"]]
+  );
+  assert.deepEqual(
+    groupsAs22.map((g) => [g.windowId, g.label]),
+    [[11, "窗口1"], [22, "窗口2 · 当前"]]
+  );
 });
 
 test("appends （后台） to minimized windows", () => {
@@ -46,13 +58,13 @@ test("appends （后台） to minimized windows", () => {
     [22, { id: 22, state: "normal" }]
   ]);
   const groups = groupTabsByWindow(TABS, { currentWindowId: 22, windowStates });
-  // Current window first, so 22 is index 0 (normal), 11 is index 1 (minimized)
-  assert.equal(groups[0].windowId, 22);
-  assert.equal(groups[0].label, "窗口1 · 当前");
-  assert.equal(groups[1].windowId, 11);
-  assert.equal(groups[1].label, "窗口2（后台）");
+  // Sort is by windowId ascending; 11 is window 1 (minimized), 22 is window 2 (current)
+  assert.equal(groups[0].windowId, 11);
+  assert.equal(groups[0].label, "窗口1（后台）");
+  assert.equal(groups[1].windowId, 22);
+  assert.equal(groups[1].label, "窗口2 · 当前");
   // Tab-level groupLabel mirrors the group label
-  assert.equal(groups[1].tabs[0].groupLabel, "窗口2（后台）");
+  assert.equal(groups[0].tabs[0].groupLabel, "窗口1（后台）");
 });
 
 test("current + minimized produces both markers", () => {

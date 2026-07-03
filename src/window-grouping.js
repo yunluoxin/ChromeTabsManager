@@ -35,18 +35,21 @@ export function groupTabsByWindow(tabs, { currentWindowId = null, windowStates =
     });
   }
 
-  // Sort: current window first (so it sits at the top), then by windowId
-  // ascending so the order is stable across reloads.
-  const sorted = [...byWindowId.values()].sort((a, b) => {
-    const aCurrent = a.windowId === currentWindowId;
-    const bCurrent = b.windowId === currentWindowId;
-    if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
-    return String(a.windowId).localeCompare(String(b.windowId), "en", { numeric: true });
-  });
+  // Sort by windowId ascending ONLY. We deliberately do NOT push the current
+  // window to the front, because the current window can change between
+  // renders (e.g. after a move focuses the destination). If sorting changed,
+  // the same windowId would get a different `窗口N` label and the user's
+  // mental anchor would shift. Numbers stay tied to windowIds; "当前" is
+  // just a floating suffix that walks with whichever window is current.
+  const sorted = [...byWindowId.values()].sort((a, b) =>
+    String(a.windowId).localeCompare(String(b.windowId), "en", { numeric: true })
+  );
 
   // Assign sequential labels (窗口1, 窗口2, ...) based on sorted position.
-  // Windows with `state === "minimized"` get a `（后台）` suffix so users can
-  // see at a glance which windows are hidden behind other apps.
+  // Because the sort above is now stable (independent of currentWindowId),
+  // the same windowId always gets the same number. Windows with
+  // `state === "minimized"` get a `（后台）` suffix so users can see at a
+  // glance which windows are hidden behind other apps.
   sorted.forEach((group, idx) => {
     if (group.windowId == null) return;
     const number = idx + 1;
