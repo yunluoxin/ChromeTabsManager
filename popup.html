@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Tab Manager</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body class="popup-body">
+    <main class="popup-shell">
+      <header class="hero compact">
+        <p class="eyebrow">Chrome Tabs</p>
+        <h1>标签清理台</h1>
+        <p id="summary" class="muted">正在读取标签…</p>
+      </header>
+
+      <section id="groups" class="group-summary"></section>
+
+      <section class="actions">
+        <button id="openDashboard" class="primary">打开完整管理页</button>
+        <button id="bookmarkOld">收藏旧标签</button>
+        <button id="discardOld">释放旧标签内存</button>
+        <button id="closeOld" class="danger">关闭旧标签</button>
+      </section>
+
+      <p id="status" class="status"></p>
+    </main>
+    <script type="module" src="src/popup.js"></script>
+  </body>
+</html>
+

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chrome Tab Manager</title>
+    <link rel="stylesheet" href="src/styles.css">
+  </head>
+  <body>
+    <main class="dashboard-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Chrome History Tab Manager</p>
+          <h1>按时间整理当前打开的标签</h1>
+          <p id="dashboardSummary" class="muted">正在读取标签…</p>
+        </div>
+        <button id="refresh">刷新</button>
+      </header>
+
+      <section class="toolbar">
+        <input id="search" type="search" placeholder="搜索标题或 URL">
+        <select id="windowFilter" aria-label="窗口范围">
+          <option value="all">全部窗口</option>
+          <option value="current">当前窗口</option>
+        </select>
+        <label class="inline-check">
+          <input id="includeExtensionTabs" type="checkbox">
+          包含扩展页面
+        </label>
+      </section>
+
+      <section class="bulk-panel">
+        <div class="selection-actions">
+          <button id="selectVisible">选择可见</button>
+          <button id="clearSelection">清空选择</button>
+          <button id="selectAll">选择全部</button>
+        </div>
+        <div class="bookmark-controls">
+          <select id="bookmarkMode" aria-label="收藏模式">
+            <option value="folder">放进一个文件夹</option>
+            <option value="flat">平铺到书签栏</option>
+            <option value="grouped">按分组建文件夹</option>
+          </select>
+          <input id="folderName" type="text" placeholder="文件夹名（可选）">
+        </div>
+        <div class="bulk-actions">
+          <button id="bookmarkSelected">收藏选中</button>
+          <button id="discardSelected">释放内存</button>
+          <button id="closeSelected" class="danger">关闭选中</button>
+        </div>
+      </section>
+
+      <p id="dashboardStatus" class="status"></p>
+      <section id="tabGroups" class="tab-groups"></section>
+    </main>
+    <script type="module" src="src/dashboard.js"></script>
+  </body>
+</html>
+
