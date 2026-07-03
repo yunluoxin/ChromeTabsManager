@@ -1,5 +1,6 @@
 import { formatActionSummary } from "./action-summary.js";
 import { NewWindowDropZone } from "./new-window-drop-zone.js";
+import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 
 const GROUPING_MODES = { BY_AGE: "by-age", BY_WINDOW: "by-window" };
 const MODE_STORAGE_KEY = "dashboardMode";
@@ -35,7 +36,8 @@ const elements = {
   folderName: document.querySelector("#folderName"),
   modeToggle: document.querySelector("#modeToggle"),
   moveSelectedTo: document.querySelector("#moveSelectedTo"),
-  moveSelected: document.querySelector("#moveSelected")
+  moveSelected: document.querySelector("#moveSelected"),
+  themeToggle: document.querySelector("#themeToggle")
 };
 
 init();
@@ -43,9 +45,45 @@ init();
 async function init() {
   state.mode = readStoredMode();
   applyModeAttribute();
+  await initTheme();
   attachNewWindowDropZone();
   bindEvents();
   await Promise.all([loadTabs(), loadWindows()]);
+}
+
+async function initTheme() {
+  const initial = await getStoredTheme();
+  applyTheme(initial);
+  refreshThemeToggle(initial);
+
+  elements.themeToggle.addEventListener("click", handleThemeClick);
+  // Cross-page sync: popup may flip the toggle while dashboard is open.
+  subscribeThemeChange((next) => {
+    applyTheme(next);
+    refreshThemeToggle(next);
+  });
+  // OS-level theme change only matters when the user is on "system".
+  subscribeSystemChange(() => {
+    if (document.body.dataset.themeSource === THEMES.SYSTEM) {
+      applyTheme(THEMES.SYSTEM);
+    }
+  });
+}
+
+async function handleThemeClick(event) {
+  const button = event.target.closest("button[data-theme]");
+  if (!button) return;
+  const next = button.dataset.theme;
+  if (!Object.values(THEMES).includes(next)) return;
+  await setStoredTheme(next);
+  applyTheme(next);
+  refreshThemeToggle(next);
+}
+
+function refreshThemeToggle(current) {
+  for (const button of elements.themeToggle.querySelectorAll("button[data-theme]")) {
+    button.setAttribute("aria-selected", String(button.dataset.theme === current));
+  }
 }
 
 function attachNewWindowDropZone() {

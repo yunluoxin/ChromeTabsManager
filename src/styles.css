@@ -3,15 +3,105 @@
   --bg: #f5f3ef;
   --panel: #fffdf8;
   --panel-strong: #ffffff;
+  --panel-soft: #fbf6ea;
   --text: #24211d;
   --muted: #746d62;
   --line: #e5ded2;
   --accent: #315cfa;
   --accent-dark: #2044bd;
+  --accent-soft: rgba(49, 92, 250, 0.12);
+  --accent-soft-strong: rgba(49, 92, 250, 0.18);
+  --accent-row: rgba(49, 92, 250, 0.04);
+  --accent-row-hover: rgba(49, 92, 250, 0.08);
+  --accent-row-checked: rgba(49, 92, 250, 0.12);
+  --accent-zone: rgba(49, 92, 250, 0.18);
   --danger: #c43828;
   --danger-dark: #8f251b;
+  --danger-soft: rgba(196, 56, 40, 0.08);
+  --danger-soft-strong: rgba(196, 56, 40, 0.25);
+  --button-bg: #ebe5da;
+  --badge-bg: #eee7dc;
+  --input-bg: #ffffff;
+  --hero-bg: rgba(255, 253, 248, 0.86);
+  --toolbar-bg: rgba(255, 253, 248, 0.8);
+  --row-actions-bg: linear-gradient(90deg, rgba(255, 253, 248, 0.62), rgba(255, 253, 248, 0.98) 28%);
+  --row-actions-border: rgba(229, 222, 210, 0.9);
+  --tab-shadow: 0 10px 30px rgba(60, 47, 31, 0.07);
   --shadow: 0 18px 45px rgba(60, 47, 31, 0.11);
+  --row-actions-shadow: 0 10px 26px rgba(60, 47, 31, 0.13);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+body[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #15140f;
+  --panel: #1d1c17;
+  --panel-strong: #232218;
+  --panel-soft: #28251b;
+  --text: #ece6d6;
+  --muted: #9c9484;
+  --line: #353229;
+  --accent: #6f8eff;
+  --accent-dark: #95acff;
+  --accent-soft: rgba(111, 142, 255, 0.16);
+  --accent-soft-strong: rgba(111, 142, 255, 0.24);
+  --accent-row: rgba(111, 142, 255, 0.08);
+  --accent-row-hover: rgba(111, 142, 255, 0.14);
+  --accent-row-checked: rgba(111, 142, 255, 0.18);
+  --accent-zone: rgba(111, 142, 255, 0.24);
+  --danger: #e36255;
+  --danger-dark: #ef8678;
+  --danger-soft: rgba(227, 98, 85, 0.12);
+  --danger-soft-strong: rgba(227, 98, 85, 0.3);
+  --button-bg: #2c2a21;
+  --badge-bg: #2c2a21;
+  --input-bg: #1a1914;
+  --hero-bg: rgba(29, 28, 23, 0.86);
+  --toolbar-bg: rgba(29, 28, 23, 0.8);
+  --row-actions-bg: linear-gradient(90deg, rgba(29, 28, 23, 0.62), rgba(29, 28, 23, 0.98) 28%);
+  --row-actions-border: rgba(53, 50, 41, 0.9);
+  --tab-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  --shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+  --row-actions-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+/* No-flash bootstrap: when the inline script in popup.html / dashboard.html
+ * sets `data-theme-bootstrap="dark"` on <html>, apply the same dark tokens
+ * before the module JS has finished loading chrome.storage.local. The JS
+ * will then promote <body data-theme> as soon as the stored preference
+ * resolves, which may override this. */
+html[data-theme-bootstrap="dark"] body,
+html[data-theme-bootstrap="dark"] :root {
+  color-scheme: dark;
+  --bg: #15140f;
+  --panel: #1d1c17;
+  --panel-strong: #232218;
+  --panel-soft: #28251b;
+  --text: #ece6d6;
+  --muted: #9c9484;
+  --line: #353229;
+  --accent: #6f8eff;
+  --accent-dark: #95acff;
+  --accent-soft: rgba(111, 142, 255, 0.16);
+  --accent-soft-strong: rgba(111, 142, 255, 0.24);
+  --accent-row: rgba(111, 142, 255, 0.08);
+  --accent-row-hover: rgba(111, 142, 255, 0.14);
+  --accent-row-checked: rgba(111, 142, 255, 0.18);
+  --accent-zone: rgba(111, 142, 255, 0.24);
+  --danger: #e36255;
+  --danger-dark: #ef8678;
+  --danger-soft: rgba(227, 98, 85, 0.12);
+  --danger-soft-strong: rgba(227, 98, 85, 0.3);
+  --button-bg: #2c2a21;
+  --badge-bg: #2c2a21;
+  --input-bg: #1a1914;
+  --hero-bg: rgba(29, 28, 23, 0.86);
+  --toolbar-bg: rgba(29, 28, 23, 0.8);
+  --row-actions-bg: linear-gradient(90deg, rgba(29, 28, 23, 0.62), rgba(29, 28, 23, 0.98) 28%);
+  --row-actions-border: rgba(53, 50, 41, 0.9);
+  --tab-shadow: 0 10px 30px rgba(0, 0, 0, 0.32);
+  --shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+  --row-actions-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -21,7 +111,7 @@
 body {
   margin: 0;
   background:
-    radial-gradient(circle at top left, rgba(49, 92, 250, 0.12), transparent 30rem),
+    radial-gradient(circle at top left, var(--accent-soft), transparent 30rem),
     var(--bg);
   color: var(--text);
 }
@@ -36,7 +126,7 @@ button {
   border: 0;
   border-radius: 12px;
   padding: 0.65rem 0.9rem;
-  background: #ebe5da;
+  background: var(--button-bg);
   color: var(--text);
   cursor: pointer;
 }
@@ -60,7 +150,7 @@ select {
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 0.65rem 0.8rem;
-  background: white;
+  background: var(--input-bg);
   color: var(--text);
 }
 
@@ -87,7 +177,7 @@ select {
   padding: 1.25rem;
   border: 1px solid var(--line);
   border-radius: 24px;
-  background: rgba(255, 253, 248, 0.86);
+  background: var(--hero-bg);
   box-shadow: var(--shadow);
 }
 
@@ -95,6 +185,17 @@ select {
   display: block;
   border-radius: 20px;
   padding: 1rem;
+}
+
+.hero-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.hero-row h1 {
+  margin-bottom: 0;
 }
 
 .eyebrow {
@@ -186,7 +287,7 @@ small {
 
 .action-button.is-loading {
   pointer-events: none;
-  background: rgba(49, 92, 250, 0.18);
+  background: var(--accent-soft-strong);
   color: var(--accent);
 }
 
@@ -238,7 +339,7 @@ small {
   padding: 1rem;
   border: 1px solid var(--line);
   border-radius: 20px;
-  background: rgba(255, 253, 248, 0.8);
+  background: var(--toolbar-bg);
 }
 
 .toolbar input[type="search"] {
@@ -269,7 +370,7 @@ small {
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--panel-strong);
-  box-shadow: 0 10px 30px rgba(60, 47, 31, 0.07);
+  box-shadow: var(--tab-shadow);
 }
 
 .group-header {
@@ -278,7 +379,7 @@ small {
   gap: 1rem;
   padding: 1rem;
   border-bottom: 1px solid var(--line);
-  background: #fbf6ea;
+  background: var(--panel-soft);
 }
 
 .group-header p {
@@ -319,15 +420,15 @@ small {
 }
 
 .tab-row:hover {
-  background: rgba(49, 92, 250, 0.04);
+  background: var(--accent-row);
 }
 
 .tab-row:has(input[type="checkbox"]:checked) {
-  background: rgba(49, 92, 250, 0.08);
+  background: var(--accent-row-hover);
 }
 
 .tab-row:has(input[type="checkbox"]:checked):hover {
-  background: rgba(49, 92, 250, 0.12);
+  background: var(--accent-row-checked);
 }
 
 .tab-row img,
@@ -351,7 +452,7 @@ small {
 .badge {
   border-radius: 999px;
   padding: 0.25rem 0.55rem;
-  background: #eee7dc;
+  background: var(--badge-bg);
   color: var(--muted);
   font-size: 0.75rem;
 }
@@ -369,12 +470,12 @@ small {
   gap: 0.3rem;
   justify-content: flex-end;
   padding: 0.25rem;
-  border: 1px solid rgba(229, 222, 210, 0.9);
+  border: 1px solid var(--row-actions-border);
   border-radius: 14px;
   background:
-    linear-gradient(90deg, rgba(255, 253, 248, 0.62), rgba(255, 253, 248, 0.98) 28%),
+    var(--row-actions-bg),
     var(--panel-strong);
-  box-shadow: 0 10px 26px rgba(60, 47, 31, 0.13);
+  box-shadow: var(--row-actions-shadow);
   opacity: 0;
   pointer-events: none;
   transform: translateY(-50%) translateX(0.35rem);
@@ -404,14 +505,14 @@ small {
 }
 
 .icon-button:hover {
-  border-color: rgba(49, 92, 250, 0.25);
-  background: rgba(49, 92, 250, 0.08);
+  border-color: var(--accent-soft-strong);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
 .danger-icon:hover {
-  border-color: rgba(196, 56, 40, 0.25);
-  background: rgba(196, 56, 40, 0.08);
+  border-color: var(--danger-soft-strong);
+  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -478,7 +579,7 @@ body[data-mode="by-window"] .tab-row:active {
 
 body[data-mode="by-window"] .tab-group.drag-over {
   outline-color: var(--accent);
-  background: rgba(49, 92, 250, 0.06);
+  background: var(--accent-row);
 }
 
 
@@ -520,7 +621,7 @@ body[data-mode="by-age"] .move-controls {
 }
 
 .new-window-zone__halo {
-  background: radial-gradient(circle, rgba(49, 92, 250, 0.18), rgba(49, 92, 250, 0) 70%);
+  background: radial-gradient(circle, var(--accent-zone), rgba(49, 92, 250, 0) 70%);
   transform: scale(0.6);
   transition: transform 160ms ease, background 160ms ease;
 }
@@ -531,7 +632,7 @@ body[data-mode="by-age"] .move-controls {
   background: var(--accent);
   color: white;
   font-weight: 800;
-  box-shadow: 0 10px 30px rgba(49, 92, 250, 0.32);
+  box-shadow: 0 10px 30px var(--accent-zone);
   transform: scale(0.5);
   transition: transform 160ms cubic-bezier(0.2, 0.7, 0.3, 1.2), background 160ms ease;
 }
@@ -548,7 +649,7 @@ body[data-mode="by-age"] .move-controls {
 
 .new-window-zone:not(.docked) .new-window-zone__halo {
   transform: scale(0.85);
-  background: radial-gradient(circle, rgba(49, 92, 250, 0.24), rgba(49, 92, 250, 0) 70%);
+  background: radial-gradient(circle, var(--accent-soft-strong), rgba(49, 92, 250, 0) 70%);
 }
 
 .new-window-zone.active .new-window-zone__core {
@@ -558,5 +659,63 @@ body[data-mode="by-age"] .move-controls {
 
 .new-window-zone.active .new-window-zone__halo {
   transform: scale(1.15);
-  background: radial-gradient(circle, rgba(49, 92, 250, 0.32), rgba(49, 92, 250, 0) 70%);
+  background: radial-gradient(circle, var(--accent-zone), rgba(49, 92, 250, 0) 70%);
+}
+
+/* Theme toggle — segmented control mirroring .mode-toggle styling, plus an
+ * icon-only compact variant for the popup (3 icon buttons in a row). */
+.theme-toggle {
+  display: inline-flex;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-strong);
+}
+
+.theme-toggle button {
+  padding: 0.45rem 0.85rem;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.theme-toggle button[aria-selected="true"] {
+  background: var(--accent);
+  color: white;
+}
+
+.theme-toggle--icons {
+  padding: 0.15rem;
+  border-radius: 12px;
+  gap: 0.1rem;
+}
+
+.theme-toggle--icons button {
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  background: transparent;
+  color: var(--muted);
+}
+
+.theme-toggle--icons button[aria-selected="true"] {
+  background: var(--accent-soft-strong);
+  color: var(--accent);
+}
+
+.theme-toggle button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* In dark mode the segmented toggle's selected state needs more contrast
+ * against the dark panel background; the accent token is already lighter
+ * there but the white text-on-accent falls flat, so we flip it to a dark
+ * text instead. */
+body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
+  color: #15140f;
 }

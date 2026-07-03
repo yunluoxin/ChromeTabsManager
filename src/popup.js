@@ -1,5 +1,6 @@
 import { isOldGroup } from "./age-grouping.js";
 import { formatActionSummary } from "./action-summary.js";
+import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 
 const state = {
   groups: [],
@@ -13,14 +14,52 @@ const elements = {
   status: document.querySelector("#status"),
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
-  discardOld: document.querySelector("#discardOld")
+  discardOld: document.querySelector("#discardOld"),
+  themeToggle: document.querySelector("#themeToggle")
 };
 
 init();
 
 async function init() {
+  await initTheme();
   bindEvents();
   await loadTabs();
+}
+
+async function initTheme() {
+  const initial = await getStoredTheme();
+  applyTheme(initial);
+  refreshThemeToggle(initial);
+
+  elements.themeToggle.addEventListener("click", handleThemeClick);
+  // Cross-page sync: dashboard may flip the toggle while popup is open.
+  subscribeThemeChange((next) => {
+    applyTheme(next);
+    refreshThemeToggle(next);
+  });
+  // OS-level theme change only matters when the user is on "system".
+  subscribeSystemChange(() => {
+    if (document.body.dataset.themeSource === THEMES.SYSTEM) {
+      applyTheme(THEMES.SYSTEM);
+    }
+  });
+}
+
+async function handleThemeClick(event) {
+  const button = event.target.closest("button[data-theme]");
+  if (!button) return;
+  const next = button.dataset.theme;
+  if (!Object.values(THEMES).includes(next)) return;
+  await setStoredTheme(next);
+  applyTheme(next);
+  refreshThemeToggle(next);
+}
+
+function refreshThemeToggle(current) {
+  const buttons = elements.themeToggle.querySelectorAll("button[data-theme]");
+  buttons.forEach((button) => {
+    button.setAttribute("aria-selected", String(button.dataset.theme === current));
+  });
 }
 
 function bindEvents() {

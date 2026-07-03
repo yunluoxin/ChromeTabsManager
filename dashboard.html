@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Chrome Tab Manager</title>
     <link rel="stylesheet" href="src/styles.css">
+    <script>
+      // No-flash theme bootstrap: apply the OS preference synchronously
+      // before first paint. The module script will refine this from
+      // chrome.storage.local once it loads.
+      (function () {
+        try {
+          var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+          var prefersDark = mq && mq.matches;
+          document.documentElement.dataset.themeBootstrap = prefersDark ? "dark" : "light";
+        } catch (e) {
+          document.documentElement.dataset.themeBootstrap = "light";
+        }
+      })();
+    </script>
   </head>
   <body data-mode="by-age">
     <main class="dashboard-shell">
@@ -18,6 +32,11 @@
           <div id="modeToggle" class="mode-toggle" role="tablist" aria-label="排列模式">
             <button type="button" data-mode="by-age" role="tab" aria-selected="true">按时间</button>
             <button type="button" data-mode="by-window" role="tab" aria-selected="false">按窗口</button>
+          </div>
+          <div id="themeToggle" class="theme-toggle" role="tablist" aria-label="主题">
+            <button type="button" data-theme="light" role="tab" aria-selected="false" title="浅色">浅</button>
+            <button type="button" data-theme="dark" role="tab" aria-selected="false" title="深色">深</button>
+            <button type="button" data-theme="system" role="tab" aria-selected="false" title="跟随系统">自</button>
           </div>
           <button id="refresh">刷新</button>
         </div>
