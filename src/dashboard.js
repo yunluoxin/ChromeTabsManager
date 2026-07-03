@@ -154,21 +154,33 @@ function handleGroupChange(event) {
 
 async function handleGroupClick(event) {
   const button = event.target.closest("button");
-  if (!button) return;
-  const rowActionHandled = await handleRowAction(button);
-  if (rowActionHandled) return;
+  if (button) {
+    const rowActionHandled = await handleRowAction(button);
+    if (rowActionHandled) return;
 
-  const groupKey = button.dataset.groupSelect || button.dataset.groupBookmark || button.dataset.groupDiscard || button.dataset.groupClose;
-  if (!groupKey) return;
+    const groupKey = button.dataset.groupSelect || button.dataset.groupBookmark || button.dataset.groupDiscard || button.dataset.groupClose;
+    if (!groupKey) return;
 
-  const groupTabs = getVisibleTabs().filter((tab) => tab.groupKey === groupKey && !tab.isExtensionOwned);
-  if (button.dataset.groupSelect) {
-    selectTabs(groupTabs);
+    const groupTabs = getVisibleTabs().filter((tab) => tab.groupKey === groupKey && !tab.isExtensionOwned);
+    if (button.dataset.groupSelect) {
+      selectTabs(groupTabs);
+      return;
+    }
+    if (button.dataset.groupBookmark) await runAction("bookmarkTabs", groupTabs.map((tab) => tab.tabId));
+    if (button.dataset.groupDiscard) await runAction("discardTabs", groupTabs.map((tab) => tab.tabId));
+    if (button.dataset.groupClose) await runAction("closeTabs", groupTabs.map((tab) => tab.tabId));
     return;
   }
-  if (button.dataset.groupBookmark) await runAction("bookmarkTabs", groupTabs.map((tab) => tab.tabId));
-  if (button.dataset.groupDiscard) await runAction("discardTabs", groupTabs.map((tab) => tab.tabId));
-  if (button.dataset.groupClose) await runAction("closeTabs", groupTabs.map((tab) => tab.tabId));
+
+  // Clicking the row body (not a button, not the checkbox) toggles selection.
+  // The native checkbox change handler still fires when the checkbox itself is clicked.
+  const row = event.target.closest(".tab-row");
+  if (!row) return;
+  if (event.target.closest('input[type="checkbox"]')) return;
+  const checkbox = row.querySelector('input[type="checkbox"]');
+  if (!checkbox || checkbox.disabled) return;
+  checkbox.checked = !checkbox.checked;
+  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 async function handleRowAction(button) {

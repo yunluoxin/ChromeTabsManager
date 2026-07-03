@@ -240,6 +240,8 @@ small {
   align-items: center;
   padding: 0.8rem 1rem;
   border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background-color 120ms ease;
 }
 
 .tab-row:last-child {
@@ -248,6 +250,19 @@ small {
 
 .tab-row.protected {
   opacity: 0.64;
+  cursor: not-allowed;
+}
+
+.tab-row:hover {
+  background: rgba(49, 92, 250, 0.04);
+}
+
+.tab-row:has(input[type="checkbox"]:checked) {
+  background: rgba(49, 92, 250, 0.08);
+}
+
+.tab-row:has(input[type="checkbox"]:checked):hover {
+  background: rgba(49, 92, 250, 0.12);
 }
 
 .tab-row img,
