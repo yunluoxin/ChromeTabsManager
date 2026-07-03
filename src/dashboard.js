@@ -140,26 +140,8 @@ async function loadWindows() {
 }
 
 function renderWindowOptions() {
-  const current = state.currentWindowId;
-  const seenIds = new Set();
-  const candidates = [];
-  let number = 0;
-  for (const windowGroup of state.groups) {
-    if (windowGroup.windowId == null) continue;
-    if (seenIds.has(windowGroup.windowId)) continue;
-    seenIds.add(windowGroup.windowId);
-    number++;
-    candidates.push({
-      windowId: windowGroup.windowId,
-      label: formatWindowLabel(number, { isCurrent: windowGroup.windowId === current })
-    });
-  }
-  for (const win of state.windows) {
-    if (seenIds.has(win.id)) continue;
-    seenIds.add(win.id);
-    number++;
-    candidates.push({ windowId: win.id, label: formatWindowLabel(number, { isCurrent: win.id === current }) });
-  }
+  const { current, candidates } = collectWindowCandidates();
+  const previousFilter = elements.windowFilter.value;
 
   elements.moveSelectedTo.innerHTML = candidates
     .map(({ windowId, label }) => {
@@ -167,6 +149,52 @@ function renderWindowOptions() {
       return `<option value="${windowId}" ${disabled}>${escapeHtml(label)}</option>`;
     })
     .join("");
+
+  const filterOptions = ['<option value="all">全部窗口</option>'];
+  if (current != null) {
+    filterOptions.push('<option value="current">当前窗口</option>');
+  }
+  for (const { windowId, label } of candidates) {
+    if (windowId === current) continue;
+    filterOptions.push(`<option value="${windowId}">${escapeHtml(label)}</option>`);
+  }
+  elements.windowFilter.innerHTML = filterOptions.join("");
+
+  const stillExists = [...elements.windowFilter.options].some((option) => option.value === previousFilter);
+  if (stillExists) {
+    elements.windowFilter.value = previousFilter;
+  }
+}
+
+function collectWindowCandidates() {
+  const current = state.currentWindowId;
+  const windowIds = new Set();
+
+  // Collect unique window IDs from both sources. In time mode, age groups
+  // carry no windowId, so only state.windows contributes — that's fine,
+  // since we re-sort into a stable order below.
+  for (const windowGroup of state.groups) {
+    if (windowGroup.windowId == null) continue;
+    windowIds.add(windowGroup.windowId);
+  }
+  for (const win of state.windows) {
+    windowIds.add(win.id);
+  }
+
+  // Stable ordering regardless of mode: current window first, then
+  // ascending by numeric windowId. This keeps the "窗口N" labels
+  // consistent across mode switches.
+  const sortedIds = [...windowIds].sort((a, b) => {
+    if (a === current && b !== current) return -1;
+    if (b === current && a !== current) return 1;
+    return Number(a) - Number(b);
+  });
+
+  const candidates = sortedIds.map((windowId, idx) => ({
+    windowId,
+    label: formatWindowLabel(idx + 1, { isCurrent: windowId === current })
+  }));
+  return { current, candidates };
 }
 
 function formatWindowLabel(index, { isCurrent = false } = {}) {
@@ -239,9 +267,14 @@ function renderTab(tab) {
 
 function getVisibleTabs() {
   const query = elements.search.value.trim().toLowerCase();
+  const filterValue = elements.windowFilter.value;
+  const targetWindowId = filterValue !== "all" && filterValue !== "current" && /^\d+$/.test(filterValue)
+    ? Number(filterValue)
+    : null;
   return state.tabs.filter((tab) => {
     if (!elements.includeExtensionTabs.checked && tab.isExtensionOwned) return false;
-    if (elements.windowFilter.value === "current" && tab.windowId !== state.currentWindowId) return false;
+    if (filterValue === "current" && tab.windowId !== state.currentWindowId) return false;
+    if (targetWindowId != null && tab.windowId !== targetWindowId) return false;
     if (!query) return true;
     return `${tab.title} ${tab.url}`.toLowerCase().includes(query);
   });
