@@ -169,6 +169,9 @@ function renderWindowOptions() {
 function collectWindowCandidates() {
   const current = state.currentWindowId;
   const windowIds = new Set();
+  // windowStates doubles as a lookup for which windows are minimized —
+  // the dashboard reuses it to append "（后台）" to the filter dropdown.
+  const windowStates = new Map();
 
   // Collect unique window IDs from both sources. In time mode, age groups
   // carry no windowId, so only state.windows contributes — that's fine,
@@ -179,6 +182,7 @@ function collectWindowCandidates() {
   }
   for (const win of state.windows) {
     windowIds.add(win.id);
+    if (win.state) windowStates.set(win.id, win);
   }
 
   // Stable ordering regardless of mode: current window first, then
@@ -192,14 +196,19 @@ function collectWindowCandidates() {
 
   const candidates = sortedIds.map((windowId, idx) => ({
     windowId,
-    label: formatWindowLabel(idx + 1, { isCurrent: windowId === current })
+    label: formatWindowLabel(idx + 1, {
+      isCurrent: windowId === current,
+      isMinimized: windowStates.get(windowId)?.state === "minimized"
+    })
   }));
   return { current, candidates };
 }
 
-function formatWindowLabel(index, { isCurrent = false } = {}) {
+function formatWindowLabel(index, { isCurrent = false, isMinimized = false } = {}) {
   if (index == null) return "未知窗口";
-  return `窗口${index}${isCurrent ? " · 当前" : ""}`;
+  const currentTag = isCurrent ? " · 当前" : "";
+  const minimizedTag = isMinimized ? "（后台）" : "";
+  return `窗口${index}${currentTag}${minimizedTag}`;
 }
 
 function render() {

@@ -8,12 +8,14 @@
 // In addition, every group carries a `windowId` so the dashboard can
 // wire drag-and-drop targets and the "move selected" dropdown.
 
-export function formatWindowLabel(index, { isCurrent = false } = {}) {
+export function formatWindowLabel(index, { isCurrent = false, isMinimized = false } = {}) {
   if (index == null) return "未知窗口";
-  return `窗口${index}${isCurrent ? " · 当前" : ""}`;
+  const currentTag = isCurrent ? " · 当前" : "";
+  const minimizedTag = isMinimized ? "（后台）" : "";
+  return `窗口${index}${currentTag}${minimizedTag}`;
 }
 
-export function groupTabsByWindow(tabs, { currentWindowId = null } = {}) {
+export function groupTabsByWindow(tabs, { currentWindowId = null, windowStates = null } = {}) {
   const byWindowId = new Map();
 
   for (const tab of tabs) {
@@ -43,13 +45,22 @@ export function groupTabsByWindow(tabs, { currentWindowId = null } = {}) {
   });
 
   // Assign sequential labels (窗口1, 窗口2, ...) based on sorted position.
+  // Windows with `state === "minimized"` get a `（后台）` suffix so users can
+  // see at a glance which windows are hidden behind other apps.
   sorted.forEach((group, idx) => {
     if (group.windowId == null) return;
     const number = idx + 1;
-    const label = formatWindowLabel(number, { isCurrent: group.windowId === currentWindowId });
+    const isCurrent = group.windowId === currentWindowId;
+    const isMinimized = isWindowMinimized(group.windowId, windowStates);
+    const label = formatWindowLabel(number, { isCurrent, isMinimized });
     group.label = label;
     for (const tab of group.tabs) tab.groupLabel = label;
   });
 
   return sorted;
+}
+
+function isWindowMinimized(windowId, windowStates) {
+  if (!windowStates || windowId == null) return false;
+  return windowStates.get(windowId) === "minimized" || windowStates.get(windowId)?.state === "minimized";
 }

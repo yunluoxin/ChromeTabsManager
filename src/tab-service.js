@@ -128,12 +128,17 @@ export async function estimateMetadataForTab(tab) {
 
 export async function getTabGroups({ mode = GROUPING_MODES.BY_AGE } = {}) {
   const metadata = await reconcileOpenTabs();
-  const [tabs, currentWindow] = await Promise.all([queryTabs({}), getCurrentWindow().catch(() => null)]);
+  const [tabs, currentWindow, windows] = await Promise.all([
+    queryTabs({}),
+    getCurrentWindow().catch(() => null),
+    listWindows().catch(() => [])
+  ]);
+  const windowStates = new Map(windows.map((win) => [win.id, win]));
   const extensionOrigin = chrome.runtime.getURL("");
   const viewModels = tabs.map((tab) => createTabViewModel(tab, metadata[tab.id], currentWindow, extensionOrigin));
 
   const groups = mode === GROUPING_MODES.BY_WINDOW
-    ? groupTabsByWindow(viewModels, { currentWindowId: currentWindow?.id ?? null })
+    ? groupTabsByWindow(viewModels, { currentWindowId: currentWindow?.id ?? null, windowStates })
     : groupTabs(viewModels);
   const groupedTabs = groups.flatMap((group) => group.tabs);
 

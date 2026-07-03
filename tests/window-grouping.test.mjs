@@ -39,3 +39,36 @@ test("places the current window first", () => {
   assert.equal(groups[1].windowId, 11);
   assert.equal(groups[1].label, "窗口2");
 });
+
+test("appends （后台） to minimized windows", () => {
+  const windowStates = new Map([
+    [11, { id: 11, state: "minimized" }],
+    [22, { id: 22, state: "normal" }]
+  ]);
+  const groups = groupTabsByWindow(TABS, { currentWindowId: 22, windowStates });
+  // Current window first, so 22 is index 0 (normal), 11 is index 1 (minimized)
+  assert.equal(groups[0].windowId, 22);
+  assert.equal(groups[0].label, "窗口1 · 当前");
+  assert.equal(groups[1].windowId, 11);
+  assert.equal(groups[1].label, "窗口2（后台）");
+  // Tab-level groupLabel mirrors the group label
+  assert.equal(groups[1].tabs[0].groupLabel, "窗口2（后台）");
+});
+
+test("current + minimized produces both markers", () => {
+  const windowStates = new Map([[11, { id: 11, state: "minimized" }]]);
+  const groups = groupTabsByWindow(TABS, { currentWindowId: 11, windowStates });
+  assert.equal(groups[0].windowId, 11);
+  assert.equal(groups[0].label, "窗口1 · 当前（后台）");
+});
+
+test("ignores unknown window state values", () => {
+  const windowStates = new Map([[11, { id: 11, state: "maximized" }]]);
+  const groups = groupTabsByWindow(TABS, { currentWindowId: 11, windowStates });
+  assert.equal(groups[0].label, "窗口1 · 当前");
+});
+
+test("formatWindowLabel accepts isMinimized", () => {
+  assert.equal(formatWindowLabel(2, { isMinimized: true }), "窗口2（后台）");
+  assert.equal(formatWindowLabel(3, { isCurrent: true, isMinimized: true }), "窗口3 · 当前（后台）");
+});
