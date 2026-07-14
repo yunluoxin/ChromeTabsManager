@@ -1,6 +1,7 @@
 import { formatActionSummary } from "./action-summary.js";
 import { NewWindowDropZone } from "./new-window-drop-zone.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
+import { showToast } from "./toast.js";
 
 const GROUPING_MODES = { BY_AGE: "by-age", BY_WINDOW: "by-window" };
 const MODE_STORAGE_KEY = "dashboardMode";
@@ -20,7 +21,6 @@ let newWindowDropZone = null;
 const elements = {
   body: document.body,
   summary: document.querySelector("#dashboardSummary"),
-  status: document.querySelector("#dashboardStatus"),
   groups: document.querySelector("#tabGroups"),
   search: document.querySelector("#search"),
   windowFilter: document.querySelector("#windowFilter"),
@@ -154,18 +154,16 @@ function persistMode(mode) {
   }
 }
 
-async function loadTabs({ silent = false } = {}) {
-  if (!silent) setStatus("正在读取标签…");
-  try {
-    const payload = await sendMessage({ type: "getTabs", mode: state.mode });
-    state.tabs = payload.tabs;
-    state.groups = payload.groups;
-    state.currentWindowId = payload.currentWindowId;
-    state.selectedTabIds = new Set([...state.selectedTabIds].filter((tabId) => state.tabs.some((tab) => tab.tabId === tabId)));
-    render();
-  } finally {
-    if (!silent) setStatus("");
-  }
+async function loadTabs() {
+  // Background refreshes after actions shouldn't override whatever the user
+  // is looking at, but the initial load uses the summary line as a spinner;
+  // render() replaces it as soon as data arrives.
+  const payload = await sendMessage({ type: "getTabs", mode: state.mode });
+  state.tabs = payload.tabs;
+  state.groups = payload.groups;
+  state.currentWindowId = payload.currentWindowId;
+  state.selectedTabIds = new Set([...state.selectedTabIds].filter((tabId) => state.tabs.some((tab) => tab.tabId === tabId)));
+  render();
 }
 
 async function loadWindows() {
@@ -397,19 +395,19 @@ async function handleGroupClick(event) {
 async function runGroupSaveWindow(groupKey) {
   const group = state.groups.find((entry) => entry.key === groupKey);
   if (!group || group.windowId == null) {
-    setStatus("当前视图下无法保存该组。");
+    showToast("当前视图下无法保存该组。", { type: "error" });
     return;
   }
-  setStatus("正在保存…");
+  showToast("正在保存…");
   try {
     const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: group.windowId });
     if (meta && meta.id) {
-      setStatus(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+      showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
     } else {
-      setStatus(formatActionSummary(meta));
+      showToast(formatActionSummary(meta), { type: "error" });
     }
   } catch (error) {
-    setStatus(`保存失败：${error.message}`);
+    showToast(`保存失败：${error.message}`, { type: "error" });
   }
 }
 
@@ -418,7 +416,7 @@ async function handleRowAction(button) {
     const tabId = Number(button.dataset.tabOpen);
     const windowId = Number(button.dataset.windowId);
     await sendMessage({ type: "activateTab", tabId, windowId });
-    setStatus("已跳转到标签。");
+    showToast("已跳转到标签。");
     return true;
   }
 
@@ -448,7 +446,7 @@ async function runSelectedAction(type) {
 
 async function runAction(type, tabIds, { confirmAction = true } = {}) {
   if (tabIds.length === 0) {
-    setStatus("没有选中的标签。");
+    showToast("没有选中的标签。", { type: "error" });
     return;
   }
 
@@ -462,15 +460,15 @@ async function runAction(type, tabIds, { confirmAction = true } = {}) {
     };
   }
 
-  setStatus("执行中…");
+  showToast("执行中…");
   const result = await sendMessage(message);
-  await loadTabs({ silent: true });
-  setStatus(formatActionSummary(result));
+  await loadTabs();
+  showToast(formatActionSummary(result));
 }
 
 async function runSelectedMove() {
   if (state.mode !== GROUPING_MODES.BY_WINDOW) {
-    setStatus("切换到「按窗口」模式才能移动标签。");
+    showToast("切换到「按窗口」模式才能移动标签。", { type: "error" });
     return;
   }
   const tabIds = [...state.selectedTabIds].filter((tabId) => {
@@ -478,33 +476,33 @@ async function runSelectedMove() {
     return tab && !tab.isExtensionOwned;
   });
   if (tabIds.length === 0) {
-    setStatus("没有可移动的非扩展标签。");
+    showToast("没有可移动的非扩展标签。", { type: "error" });
     return;
   }
   const targetWindowId = Number(elements.moveSelectedTo.value);
   if (!Number.isFinite(targetWindowId)) {
-    setStatus("请选择目标窗口。");
+    showToast("请选择目标窗口。", { type: "error" });
     return;
   }
   await runMove(tabIds, targetWindowId);
 }
 
 async function runMove(tabIds, targetWindowId) {
-  setStatus("执行中…");
+  showToast("执行中…");
   const result = await sendMessage({ type: "moveTabs", tabIds, targetWindowId });
-  await Promise.all([loadTabs({ silent: true }), loadWindows()]);
-  setStatus(`移动完成：${formatActionSummary(result)}`);
+  await Promise.all([loadTabs(), loadWindows()]);
+  showToast(`移动完成：${formatActionSummary(result)}`);
 }
 
 async function runCreateWindowWithTabs(tabIds) {
   if (!Array.isArray(tabIds) || tabIds.length === 0) return;
-  setStatus("正在创建新窗口…");
+  showToast("正在创建新窗口…");
   try {
     const result = await sendMessage({ type: "createWindowWithTabs", tabIds });
-    await Promise.all([loadTabs({ silent: true }), loadWindows()]);
-    setStatus(`新窗口已建：${formatActionSummary(result)}`);
+    await Promise.all([loadTabs(), loadWindows()]);
+    showToast(`新窗口已建：${formatActionSummary(result)}`);
   } catch (error) {
-    setStatus(`新建窗口失败：${error.message}`);
+    showToast(`新建窗口失败：${error.message}`, { type: "error" });
   }
 }
 
@@ -597,10 +595,6 @@ async function handleDrop(event) {
   await runMove(tabIds, targetWindowId);
 }
 
-function setStatus(message) {
-  elements.status.textContent = message;
-}
-
 function sendMessage(message) {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(message, (response) => {
@@ -616,7 +610,7 @@ function sendMessage(message) {
       resolve(response.payload);
     });
   }).catch((error) => {
-    setStatus(error.message);
+    showToast(error.message, { type: "error" });
     throw error;
   });
 }

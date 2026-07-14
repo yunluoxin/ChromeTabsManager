@@ -1,6 +1,7 @@
 import { isOldGroup } from "./age-grouping.js";
 import { formatActionSummary } from "./action-summary.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
+import { showToast } from "./toast.js";
 
 const state = {
   groups: [],
@@ -12,7 +13,6 @@ const state = {
 
 const elements = {
   summary: document.querySelector("#summary"),
-  status: document.querySelector("#status"),
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
   discardOld: document.querySelector("#discardOld"),
@@ -99,16 +99,15 @@ function setButtonState(button, state) {
   }
 }
 
-async function loadTabs({ preserveStatus = false } = {}) {
-  setStatus("正在读取标签…");
+async function loadTabs() {
+  // The summary line doubles as the load indicator; render() will replace
+  // it with the actual counts as soon as the data arrives.
+  elements.summary.textContent = "正在读取标签…";
   const payload = await sendMessage({ type: "getTabs" });
   state.groups = payload.groups;
   state.tabs = payload.tabs;
   state.currentWindowId = payload.currentWindowId;
   render();
-  if (!preserveStatus) {
-    setStatus("");
-  }
 }
 
 function render() {
@@ -134,15 +133,15 @@ async function discardOldTabs() {
 
 async function runDiscard(button, tabIds, emptyMessage) {
   if (tabIds.length === 0) {
-    setStatus(emptyMessage);
+    showToast(emptyMessage);
     return;
   }
 
   setButtonState(button, "loading");
   try {
     const result = await sendMessage({ type: "discardTabs", tabIds });
-    await loadTabs({ preserveStatus: true });
-    setStatus(formatActionSummary(result));
+    await loadTabs();
+    showToast(formatActionSummary(result));
     setButtonState(button, "success");
   } catch (error) {
     setButtonState(button, "idle");
@@ -154,7 +153,7 @@ async function saveAllTabs() {
   setButtonState(elements.saveAll, "loading");
   try {
     const meta = await sendMessage({ type: "saveSnapshot" });
-    setStatus(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
     if (state.snapshotListOpen) {
       await loadAndRenderSnapshots();
     }
@@ -178,7 +177,7 @@ async function loadAndRenderSnapshots() {
     state.snapshots = await sendMessage({ type: "listSnapshots" });
   } catch (error) {
     state.snapshots = [];
-    setStatus(error.message);
+    showToast(error.message, { type: "error" });
   }
   renderSnapshotList();
 }
@@ -225,12 +224,12 @@ async function handleSnapshotListClick(event) {
 }
 
 async function restoreSnapshotById(id) {
-  setStatus("正在恢复…");
+  showToast("正在恢复…");
   try {
     const result = await sendMessage({ type: "restoreSnapshot", id });
-    setStatus(`已恢复：${formatActionSummary(result)}`);
+    showToast(`已恢复：${formatActionSummary(result)}`);
   } catch (error) {
-    setStatus(error.message);
+    showToast(error.message, { type: "error" });
   }
 }
 
@@ -239,8 +238,9 @@ async function deleteSnapshotById(id) {
     await sendMessage({ type: "deleteSnapshot", id });
     state.snapshots = state.snapshots.filter((snapshot) => snapshot.id !== id);
     renderSnapshotList();
+    showToast("已删除快照。");
   } catch (error) {
-    setStatus(error.message);
+    showToast(error.message, { type: "error" });
   }
 }
 
@@ -255,10 +255,6 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value);
-}
-
-function setStatus(message) {
-  elements.status.textContent = message;
 }
 
 function sendMessage(message) {
@@ -276,7 +272,7 @@ function sendMessage(message) {
       resolve(response.payload);
     });
   }).catch((error) => {
-    setStatus(error.message);
+    showToast(error.message, { type: "error" });
     throw error;
   });
 }
