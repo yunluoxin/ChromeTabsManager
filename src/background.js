@@ -4,13 +4,17 @@ import {
   closeTabs,
   createWindowWithTabs,
   discardTabs,
+  deleteSnapshot,
   getTabGroups,
+  listSnapshots,
   listWindows,
   moveTabsToWindow,
   reconcileOpenTabs,
   recordTabOpened,
   removeTabMetadata,
-  replaceTabMetadata
+  replaceTabMetadata,
+  restoreSnapshot,
+  saveSnapshot
 } from "./tab-service.js";
 import { createTab } from "./chrome-api.js";
 
@@ -61,6 +65,14 @@ async function handleMessage(message) {
       return createTab({ url: chrome.runtime.getURL("dashboard.html") });
     case "activateTab":
       return activateTab(message.tabId, message.windowId);
+    case "saveSnapshot":
+      return saveSnapshot();
+    case "listSnapshots":
+      return listSnapshots();
+    case "deleteSnapshot":
+      return deleteSnapshot(message.id);
+    case "restoreSnapshot":
+      return restoreSnapshot(message.id);
     default:
       throw new Error(`Unknown message type: ${message?.type}`);
   }

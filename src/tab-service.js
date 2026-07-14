@@ -16,6 +16,9 @@ import {
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
 import { groupTabsByWindow } from "./window-grouping.js";
+import { captureSnapshot, planRestore } from "./tab-snapshot.js";
+
+const SNAPSHOTS_KEY = "tabSnapshots";
 
 export const GROUPING_MODES = Object.freeze({
   BY_AGE: "by-age",
@@ -348,4 +351,85 @@ function createSummary() {
     failed: 0,
     errors: []
   };
+}
+
+async function readSnapshots() {
+  const stored = await getFromStorage({ [SNAPSHOTS_KEY]: { snapshots: [] } });
+  const raw = stored[SNAPSHOTS_KEY] || {};
+  return Array.isArray(raw.snapshots) ? raw.snapshots : [];
+}
+
+async function writeSnapshots(snapshots) {
+  await setInStorage({ [SNAPSHOTS_KEY]: { snapshots } });
+}
+
+function summarizeSnapshot(snapshot) {
+  return {
+    id: snapshot.id,
+    createdAt: snapshot.createdAt,
+    label: snapshot.label,
+    windowCount: snapshot.windowCount,
+    tabCount: snapshot.tabCount
+  };
+}
+
+export async function saveSnapshot() {
+  const [tabs, windows] = await Promise.all([queryTabs({}), queryWindows({})]);
+  const snapshot = captureSnapshot(tabs, windows, Date.now());
+  const snapshots = await readSnapshots();
+  // Newest first so the popup doesn't need to sort.
+  snapshots.unshift(snapshot);
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(snapshot);
+}
+
+export async function listSnapshots() {
+  const snapshots = await readSnapshots();
+  return snapshots.map(summarizeSnapshot);
+}
+
+export async function getSnapshot(id) {
+  const snapshots = await readSnapshots();
+  return snapshots.find((snapshot) => snapshot.id === id) || null;
+}
+
+export async function deleteSnapshot(id) {
+  const snapshots = await readSnapshots();
+  const next = snapshots.filter((snapshot) => snapshot.id !== id);
+  if (next.length === snapshots.length) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+  await writeSnapshots(next);
+  return { id, succeeded: 1 };
+}
+
+export async function restoreSnapshot(id) {
+  const summary = createSummary();
+  const snapshot = await getSnapshot(id);
+  if (!snapshot) {
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+  const plan = planRestore(snapshot);
+  for (const window of plan.windows) {
+    if (!window.urls || window.urls.length === 0) {
+      summary.failed += 1;
+      summary.errors.push("空窗口已跳过");
+      continue;
+    }
+    try {
+      // activeIndex is already at urls[0], so Chrome activates the right tab
+      // without a follow-up tabs.update call.
+      await createWindow({ url: window.urls });
+      summary.succeeded += 1;
+    } catch (error) {
+      summary.failed += 1;
+      summary.errors.push(error.message);
+    }
+  }
+  return summary;
 }

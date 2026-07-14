@@ -5,16 +5,20 @@ import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChang
 const state = {
   groups: [],
   tabs: [],
-  currentWindowId: null
+  currentWindowId: null,
+  snapshotListOpen: false,
+  snapshots: []
 };
 
 const elements = {
   summary: document.querySelector("#summary"),
-  groups: document.querySelector("#groups"),
   status: document.querySelector("#status"),
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
   discardOld: document.querySelector("#discardOld"),
+  saveAll: document.querySelector("#saveAll"),
+  restoreAll: document.querySelector("#restoreAll"),
+  snapshotList: document.querySelector("#snapshotList"),
   themeToggle: document.querySelector("#themeToggle")
 };
 
@@ -66,6 +70,9 @@ function bindEvents() {
   elements.openDashboard.addEventListener("click", () => sendMessage({ type: "openDashboard" }));
   elements.discardAll.addEventListener("click", () => discardAllTabs());
   elements.discardOld.addEventListener("click", () => discardOldTabs());
+  elements.saveAll.addEventListener("click", () => saveAllTabs());
+  elements.restoreAll.addEventListener("click", () => toggleSnapshotList());
+  elements.snapshotList.addEventListener("click", handleSnapshotListClick);
 }
 
 const resetTimers = new WeakMap();
@@ -107,9 +114,6 @@ async function loadTabs({ preserveStatus = false } = {}) {
 function render() {
   const currentWindowCount = state.tabs.filter((tab) => tab.windowId === state.currentWindowId).length;
   elements.summary.textContent = `全部 ${state.tabs.length} 个 · 当前窗口 ${currentWindowCount} 个`;
-  elements.groups.innerHTML = state.groups
-    .map((group) => `<article class="summary-card"><span>${group.label}</span><strong>${group.tabs.length}</strong></article>`)
-    .join("");
 }
 
 async function discardAllTabs() {
@@ -144,6 +148,113 @@ async function runDiscard(button, tabIds, emptyMessage) {
     setButtonState(button, "idle");
     throw error;
   }
+}
+
+async function saveAllTabs() {
+  setButtonState(elements.saveAll, "loading");
+  try {
+    const meta = await sendMessage({ type: "saveSnapshot" });
+    setStatus(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    if (state.snapshotListOpen) {
+      await loadAndRenderSnapshots();
+    }
+    setButtonState(elements.saveAll, "success");
+  } catch (error) {
+    setButtonState(elements.saveAll, "idle");
+    throw error;
+  }
+}
+
+async function toggleSnapshotList() {
+  state.snapshotListOpen = !state.snapshotListOpen;
+  elements.snapshotList.hidden = !state.snapshotListOpen;
+  if (state.snapshotListOpen) {
+    await loadAndRenderSnapshots();
+  }
+}
+
+async function loadAndRenderSnapshots() {
+  try {
+    state.snapshots = await sendMessage({ type: "listSnapshots" });
+  } catch (error) {
+    state.snapshots = [];
+    setStatus(error.message);
+  }
+  renderSnapshotList();
+}
+
+function renderSnapshotList() {
+  if (state.snapshots.length === 0) {
+    elements.snapshotList.innerHTML = `<div class="snapshot-empty">暂无快照</div>`;
+    return;
+  }
+  elements.snapshotList.innerHTML = state.snapshots
+    .map((snapshot) => renderSnapshotRow(snapshot))
+    .join("");
+}
+
+function renderSnapshotRow(snapshot) {
+  // The label and counts are numbers from our own storage, but keep the
+  // defensive escaping in case anything in the chain ever changes.
+  const label = escapeHtml(snapshot.label);
+  return `
+    <div class="snapshot-row" data-snapshot-id="${escapeAttribute(snapshot.id)}">
+      <div class="snapshot-row__meta">
+        <span class="snapshot-row__time">${label}</span>
+        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签</span>
+      </div>
+      <div class="snapshot-row__actions">
+        <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">↺</button>
+        <button type="button" class="icon-button icon-button--danger" data-action="delete" title="删除" aria-label="删除">×</button>
+      </div>
+    </div>
+  `;
+}
+
+async function handleSnapshotListClick(event) {
+  const row = event.target.closest(".snapshot-row");
+  if (!row) return;
+  const id = row.dataset.snapshotId;
+  const action = event.target.closest("button[data-action]")?.dataset.action;
+  if (!id || !action) return;
+  if (action === "restore") {
+    await restoreSnapshotById(id);
+  } else if (action === "delete") {
+    await deleteSnapshotById(id);
+  }
+}
+
+async function restoreSnapshotById(id) {
+  setStatus("正在恢复…");
+  try {
+    const result = await sendMessage({ type: "restoreSnapshot", id });
+    setStatus(`已恢复：${formatActionSummary(result)}`);
+  } catch (error) {
+    setStatus(error.message);
+  }
+}
+
+async function deleteSnapshotById(id) {
+  try {
+    await sendMessage({ type: "deleteSnapshot", id });
+    state.snapshots = state.snapshots.filter((snapshot) => snapshot.id !== id);
+    renderSnapshotList();
+  } catch (error) {
+    setStatus(error.message);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value);
 }
 
 function setStatus(message) {

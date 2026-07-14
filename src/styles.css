@@ -268,6 +268,36 @@ small {
   flex-direction: column;
 }
 
+.popup-shell .actions {
+  margin-top: 1rem;
+}
+
+/* Sub-section inside .actions. Each group gets a thin top border and a
+ * small uppercase title so the user can tell "释放内存" apart from
+ * "保存与恢复" at a glance. The first group drops its own border so
+ * only inter-group separators are visible. */
+.action-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.action-group:first-child {
+  border-top: 0;
+  padding-top: 0.7rem;
+}
+
+.action-group__title {
+  margin: 0 0 0.1rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .action-button {
   display: inline-flex;
   align-items: center;
@@ -710,6 +740,67 @@ body[data-mode="by-age"] .move-controls {
 .theme-toggle button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Snapshot list shown under the popup's save/restore buttons. The
+ * `.actions` container is `flex-direction: column`, so this list stacks
+ * naturally with the surrounding buttons. */
+.snapshot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.snapshot-list[hidden] {
+  display: none;
+}
+
+.snapshot-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+
+.snapshot-row__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.snapshot-row__time {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.snapshot-row__stats {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.snapshot-row__actions {
+  display: inline-flex;
+  gap: 0.3rem;
+}
+
+.snapshot-empty {
+  padding: 0.8rem;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.icon-button--danger:hover {
+  border-color: var(--danger-soft-strong);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 /* In dark mode the segmented toggle's selected state needs more contrast

@@ -26,7 +26,7 @@
         <div class="hero-row">
           <div>
             <p class="eyebrow">Chrome Tabs</p>
-            <h1>标签清理台</h1>
+            <h1>标签整理台</h1>
           </div>
           <div id="themeToggle" class="theme-toggle theme-toggle--icons" role="tablist" aria-label="主题">
             <button type="button" data-theme="light" role="tab" aria-selected="false" title="浅色" aria-label="浅色">☀</button>
@@ -37,20 +37,37 @@
         <p id="summary" class="muted">正在读取标签…</p>
       </header>
 
-      <section id="groups" class="group-summary"></section>
-
       <section class="actions">
         <button id="openDashboard" class="primary">打开完整管理页</button>
-        <button id="discardAll" class="action-button">
-          <span class="action-button__label">释放所有标签内存</span>
-          <span class="action-button__spinner" aria-hidden="true"></span>
-          <span class="action-button__check" aria-hidden="true">✓</span>
-        </button>
-        <button id="discardOld" class="action-button">
-          <span class="action-button__label">释放旧标签内存</span>
-          <span class="action-button__spinner" aria-hidden="true"></span>
-          <span class="action-button__check" aria-hidden="true">✓</span>
-        </button>
+
+        <section class="action-group">
+          <h2 class="action-group__title">释放内存</h2>
+          <button id="discardAll" class="action-button">
+            <span class="action-button__label">释放所有标签内存</span>
+            <span class="action-button__spinner" aria-hidden="true"></span>
+            <span class="action-button__check" aria-hidden="true">✓</span>
+          </button>
+          <button id="discardOld" class="action-button">
+            <span class="action-button__label">释放旧标签内存</span>
+            <span class="action-button__spinner" aria-hidden="true"></span>
+            <span class="action-button__check" aria-hidden="true">✓</span>
+          </button>
+        </section>
+
+        <section class="action-group">
+          <h2 class="action-group__title">保存与恢复</h2>
+          <button id="saveAll" class="action-button">
+            <span class="action-button__label">保存当前所有标签</span>
+            <span class="action-button__spinner" aria-hidden="true"></span>
+            <span class="action-button__check" aria-hidden="true">✓</span>
+          </button>
+          <button id="restoreAll" class="action-button">
+            <span class="action-button__label">恢复所有标签</span>
+            <span class="action-button__spinner" aria-hidden="true"></span>
+            <span class="action-button__check" aria-hidden="true">✓</span>
+          </button>
+          <div id="snapshotList" class="snapshot-list" hidden></div>
+        </section>
       </section>
 
       <p id="status" class="status"></p>
