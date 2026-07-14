@@ -5,20 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Tab Manager</title>
     <link rel="stylesheet" href="src/styles.css">
-    <script>
-      // No-flash theme bootstrap: apply the OS preference synchronously
-      // before first paint. The module script will refine this from
-      // chrome.storage.local once it loads.
-      (function () {
-        try {
-          var mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
-          var prefersDark = mq && mq.matches;
-          document.documentElement.dataset.themeBootstrap = prefersDark ? "dark" : "light";
-        } catch (e) {
-          document.documentElement.dataset.themeBootstrap = "light";
-        }
-      })();
-    </script>
+    <script src="src/theme-bootstrap.js"></script>
   </head>
   <body class="popup-body">
     <main class="popup-shell">
