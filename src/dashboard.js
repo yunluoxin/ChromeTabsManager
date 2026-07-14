@@ -268,6 +268,11 @@ function render() {
 function renderGroup(group) {
   const draggableAttrs = state.mode === GROUPING_MODES.BY_WINDOW ? `data-window-id="${group.windowId}"` : "";
   const dragHint = state.mode === GROUPING_MODES.BY_WINDOW ? `title="拖到其它窗口即可移动"` : "";
+  // 「保存本组」只在窗口模式下出现：按时间分组的组没有 windowId，复用 popup
+  // 的"保存所有标签"语义也无意义，所以只暴露在 BY_WINDOW 视图里。
+  const saveWindowButton = state.mode === GROUPING_MODES.BY_WINDOW
+    ? `<button data-group-save-window="${group.key}">保存本组</button>`
+    : "";
   return `
     <article class="tab-group" ${draggableAttrs} ${dragHint}>
       <header class="group-header">
@@ -276,6 +281,7 @@ function renderGroup(group) {
           <p>${group.tabs.length} 个标签</p>
         </div>
         <div class="group-actions">
+          ${saveWindowButton}
           <button data-group-select="${group.key}">选择本组</button>
           <button data-group-bookmark="${group.key}">收藏本组</button>
           <button data-group-discard="${group.key}">释放本组</button>
@@ -358,6 +364,11 @@ async function handleGroupClick(event) {
     const rowActionHandled = await handleRowAction(button);
     if (rowActionHandled) return;
 
+    if (button.dataset.groupSaveWindow) {
+      await runGroupSaveWindow(button.dataset.groupSaveWindow);
+      return;
+    }
+
     const groupKey = button.dataset.groupSelect || button.dataset.groupBookmark || button.dataset.groupDiscard || button.dataset.groupClose;
     if (!groupKey) return;
 
@@ -381,6 +392,25 @@ async function handleGroupClick(event) {
   if (!checkbox || checkbox.disabled) return;
   checkbox.checked = !checkbox.checked;
   checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+async function runGroupSaveWindow(groupKey) {
+  const group = state.groups.find((entry) => entry.key === groupKey);
+  if (!group || group.windowId == null) {
+    setStatus("当前视图下无法保存该组。");
+    return;
+  }
+  setStatus("正在保存…");
+  try {
+    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: group.windowId });
+    if (meta && meta.id) {
+      setStatus(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    } else {
+      setStatus(formatActionSummary(meta));
+    }
+  } catch (error) {
+    setStatus(`保存失败：${error.message}`);
+  }
 }
 
 async function handleRowAction(button) {

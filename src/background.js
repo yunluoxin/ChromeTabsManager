@@ -14,7 +14,8 @@ import {
   removeTabMetadata,
   replaceTabMetadata,
   restoreSnapshot,
-  saveSnapshot
+  saveSnapshot,
+  saveWindowSnapshot
 } from "./tab-service.js";
 import { createTab } from "./chrome-api.js";
 
@@ -67,6 +68,8 @@ async function handleMessage(message) {
       return activateTab(message.tabId, message.windowId);
     case "saveSnapshot":
       return saveSnapshot();
+    case "saveWindowSnapshot":
+      return saveWindowSnapshot(message.windowId);
     case "listSnapshots":
       return listSnapshots();
     case "deleteSnapshot":

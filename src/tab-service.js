@@ -383,6 +383,34 @@ export async function saveSnapshot() {
   return summarizeSnapshot(snapshot);
 }
 
+export async function saveWindowSnapshot(windowId) {
+  const safeWindowId = Number(windowId);
+  if (!Number.isFinite(safeWindowId)) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("窗口无效");
+    return summary;
+  }
+
+  const allTabs = await queryTabs({});
+  const windowTabs = allTabs.filter((tab) => tab.windowId === safeWindowId);
+  // Reuse the single-window shape: passing a one-element windows list keeps
+  // captureSnapshot's knownWindowIds filter narrow to the target window.
+  const snapshot = captureSnapshot(windowTabs, [{ id: safeWindowId }], Date.now());
+
+  if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("窗口内没有可保存的标签");
+    return summary;
+  }
+
+  const snapshots = await readSnapshots();
+  snapshots.unshift(snapshot);
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(snapshot);
+}
+
 export async function listSnapshots() {
   const snapshots = await readSnapshots();
   return snapshots.map(summarizeSnapshot);
