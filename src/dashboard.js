@@ -11,7 +11,7 @@ const state = {
   groups: [],
   currentWindowId: null,
   selectedTabIds: new Set(),
-  mode: GROUPING_MODES.BY_AGE,
+  mode: GROUPING_MODES.BY_WINDOW,
   windows: [],
   dragCount: 0
 };
@@ -140,9 +140,12 @@ function applyModeAttribute() {
 function readStoredMode() {
   try {
     const stored = sessionStorage.getItem(MODE_STORAGE_KEY);
-    return stored === GROUPING_MODES.BY_WINDOW ? GROUPING_MODES.BY_WINDOW : GROUPING_MODES.BY_AGE;
+    if (stored === GROUPING_MODES.BY_AGE || stored === GROUPING_MODES.BY_WINDOW) {
+      return stored;
+    }
+    return GROUPING_MODES.BY_WINDOW;
   } catch {
-    return GROUPING_MODES.BY_AGE;
+    return GROUPING_MODES.BY_WINDOW;
   }
 }
 
