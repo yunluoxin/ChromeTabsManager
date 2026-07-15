@@ -119,6 +119,20 @@ function bindEvents() {
   elements.groups.addEventListener("dragleave", handleDragLeave);
   elements.groups.addEventListener("drop", handleDrop);
   elements.modeToggle.addEventListener("click", handleModeToggle);
+  document.addEventListener("keydown", handleSearchShortcut);
+}
+
+// Cmd+K (mac) or Ctrl+K (windows/linux) — focus the search input. We accept
+// either modifier unconditionally so the binding works regardless of platform
+// and so users on Mac who instinctively press Ctrl+K (or vice versa) still get
+// the focus. preventDefault guards against Chrome treating Ctrl+K as a tab-
+// management shortcut.
+function handleSearchShortcut(event) {
+  if (event.key !== "k" && event.key !== "K") return;
+  if (!event.metaKey && !event.ctrlKey) return;
+  event.preventDefault();
+  elements.search.focus();
+  elements.search.select();
 }
 
 function handleModeToggle(event) {
