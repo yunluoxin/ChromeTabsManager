@@ -411,6 +411,51 @@ export async function saveWindowSnapshot(windowId) {
   return summarizeSnapshot(snapshot);
 }
 
+// Same shape as saveWindowSnapshot, but accepts an explicit subset of tab IDs
+// rather than the whole window. Tabs are bucketed by their own windowId, so a
+// selection that spans N source windows produces a snapshot with N entries —
+// one per source window, each holding only its selected tabs.
+export async function saveSelectedSnapshot(tabIds) {
+  const safeIds = (tabIds || []).map(Number).filter((id) => Number.isFinite(id));
+  const summary = createSummary();
+
+  if (safeIds.length === 0) {
+    summary.failed = 1;
+    summary.errors.push("没有选中的标签");
+    return summary;
+  }
+
+  const allTabs = await queryTabs({});
+  const tabsById = new Map(allTabs.map((tab) => [tab.id, tab]));
+  const selectedTabs = safeIds
+    .map((id) => tabsById.get(id))
+    .filter((tab) => tab && tab.windowId != null);
+
+  if (selectedTabs.length === 0) {
+    summary.failed = 1;
+    summary.errors.push("选中的标签都已失效");
+    return summary;
+  }
+
+  // Mirrors saveWindowSnapshot: captureSnapshot needs the windows list to
+  // keep its knownWindowIds filter narrow, so pass one stub per source window.
+  const windowIds = [...new Set(selectedTabs.map((tab) => tab.windowId))];
+  const windows = windowIds.map((id) => ({ id }));
+
+  const snapshot = captureSnapshot(selectedTabs, windows, Date.now());
+
+  if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
+    summary.failed = 1;
+    summary.errors.push("没有可保存的标签");
+    return summary;
+  }
+
+  const snapshots = await readSnapshots();
+  snapshots.unshift(snapshot);
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(snapshot);
+}
+
 export async function listSnapshots() {
   const snapshots = await readSnapshots();
   return snapshots.map(summarizeSnapshot);

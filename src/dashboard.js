@@ -32,6 +32,7 @@ const elements = {
   bookmarkSelected: document.querySelector("#bookmarkSelected"),
   discardSelected: document.querySelector("#discardSelected"),
   closeSelected: document.querySelector("#closeSelected"),
+  saveSelected: document.querySelector("#saveSelected"),
   bookmarkMode: document.querySelector("#bookmarkMode"),
   folderName: document.querySelector("#folderName"),
   modeToggle: document.querySelector("#modeToggle"),
@@ -108,6 +109,7 @@ function bindEvents() {
   elements.bookmarkSelected.addEventListener("click", () => runSelectedAction("bookmarkTabs"));
   elements.discardSelected.addEventListener("click", () => runSelectedAction("discardTabs"));
   elements.closeSelected.addEventListener("click", () => runSelectedAction("closeTabs"));
+  elements.saveSelected.addEventListener("click", runSelectedSave);
   elements.moveSelected.addEventListener("click", runSelectedMove);
   elements.groups.addEventListener("change", handleGroupChange);
   elements.groups.addEventListener("click", handleGroupClick);
@@ -404,6 +406,25 @@ async function runGroupSaveWindow(groupKey) {
   showToast("正在保存…");
   try {
     const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: group.windowId });
+    if (meta && meta.id) {
+      showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    } else {
+      showToast(formatActionSummary(meta), { type: "error" });
+    }
+  } catch (error) {
+    showToast(`保存失败：${error.message}`, { type: "error" });
+  }
+}
+
+async function runSelectedSave() {
+  const tabIds = [...state.selectedTabIds];
+  if (tabIds.length === 0) {
+    showToast("没有选中的标签。", { type: "error" });
+    return;
+  }
+  showToast("正在保存…");
+  try {
+    const meta = await sendMessage({ type: "saveSelectedSnapshot", tabIds });
     if (meta && meta.id) {
       showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
     } else {
