@@ -12,6 +12,7 @@ import {
   reconcileOpenTabs,
   recordTabOpened,
   removeTabMetadata,
+  renameSnapshot,
   replaceTabMetadata,
   restoreSnapshot,
   saveSnapshot,
@@ -77,6 +78,8 @@ async function handleMessage(message) {
       return listSnapshots();
     case "deleteSnapshot":
       return deleteSnapshot(message.id);
+    case "renameSnapshot":
+      return renameSnapshot(message.id, message.label);
     case "restoreSnapshot":
       return restoreSnapshot(message.id);
     default:

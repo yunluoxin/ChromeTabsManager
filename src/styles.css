@@ -785,6 +785,12 @@ body[data-mode="by-age"] .move-controls {
   font-size: 0.78rem;
 }
 
+.snapshot-row__created {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .snapshot-row__actions {
   display: inline-flex;
   gap: 0.3rem;

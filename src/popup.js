@@ -1,5 +1,6 @@
 import { isOldGroup } from "./age-grouping.js";
 import { formatActionSummary } from "./action-summary.js";
+import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
 
@@ -196,13 +197,18 @@ function renderSnapshotRow(snapshot) {
   // The label and counts are numbers from our own storage, but keep the
   // defensive escaping in case anything in the chain ever changes.
   const label = escapeHtml(snapshot.label);
+  // The label is user-editable now, so the captured-at time needs to live on
+  // its own line — appending it to the stats line made long timestamps wrap.
+  const createdAtLabel = escapeHtml(formatSnapshotLabel(snapshot.createdAt));
   return `
     <div class="snapshot-row" data-snapshot-id="${escapeAttribute(snapshot.id)}">
       <div class="snapshot-row__meta">
         <span class="snapshot-row__time">${label}</span>
         <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签</span>
+        <span class="snapshot-row__created">${createdAtLabel}</span>
       </div>
       <div class="snapshot-row__actions">
+        <button type="button" class="icon-button" data-action="rename" title="修改名称" aria-label="修改名称">✎</button>
         <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">↺</button>
         <button type="button" class="icon-button icon-button--danger" data-action="delete" title="删除" aria-label="删除">×</button>
       </div>
@@ -216,10 +222,37 @@ async function handleSnapshotListClick(event) {
   const id = row.dataset.snapshotId;
   const action = event.target.closest("button[data-action]")?.dataset.action;
   if (!id || !action) return;
-  if (action === "restore") {
+  if (action === "rename") {
+    await renameSnapshotById(id);
+  } else if (action === "restore") {
     await restoreSnapshotById(id);
   } else if (action === "delete") {
     await deleteSnapshotById(id);
+  }
+}
+
+async function renameSnapshotById(id) {
+  const target = state.snapshots.find((snapshot) => snapshot.id === id);
+  if (!target) return;
+  const next = window.prompt("修改快照名称", target.label);
+  if (next === null) return; // user cancelled
+  const trimmed = next.trim();
+  if (!trimmed) {
+    showToast("名称不能为空。", { type: "error" });
+    return;
+  }
+  if (trimmed === target.label) return;
+  try {
+    const updated = await sendMessage({ type: "renameSnapshot", id, label: trimmed });
+    // Replace the local copy so the next render picks up the new label without
+    // a round-trip to the service worker.
+    state.snapshots = state.snapshots.map((snapshot) =>
+      snapshot.id === id ? { ...snapshot, ...updated } : snapshot
+    );
+    renderSnapshotList();
+    showToast("已更新名称。");
+  } catch (error) {
+    showToast(error.message, { type: "error" });
   }
 }
 

@@ -479,6 +479,40 @@ export async function deleteSnapshot(id) {
   return { id, succeeded: 1 };
 }
 
+// Trims and replaces the snapshot's label in-place. Returns the updated summary
+// so the popup can refresh the row without re-listing everything. Rejects when
+// the snapshot is missing or the new label is empty/whitespace-only so the row
+// doesn't silently turn into a nameless placeholder.
+export async function renameSnapshot(id, label) {
+  const safeId = typeof id === "string" ? id.trim() : "";
+  const safeLabel = typeof label === "string" ? label.trim() : "";
+  if (!safeId) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+  if (!safeLabel) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("名称不能为空");
+    return summary;
+  }
+
+  const snapshots = await readSnapshots();
+  const target = snapshots.find((snapshot) => snapshot.id === safeId);
+  if (!target) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+
+  target.label = safeLabel;
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(target);
+}
+
 export async function restoreSnapshot(id) {
   const summary = createSummary();
   const snapshot = await getSnapshot(id);
