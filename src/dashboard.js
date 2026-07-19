@@ -1,4 +1,5 @@
 import { formatActionSummary } from "./action-summary.js";
+import { faviconFallback } from "./favicon-fallback.js";
 import { NewWindowDropZone } from "./new-window-drop-zone.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -28,7 +29,6 @@ const elements = {
   refresh: document.querySelector("#refresh"),
   selectVisible: document.querySelector("#selectVisible"),
   selectAll: document.querySelector("#selectAll"),
-  clearSelection: document.querySelector("#clearSelection"),
   bookmarkSelected: document.querySelector("#bookmarkSelected"),
   discardSelected: document.querySelector("#discardSelected"),
   closeSelected: document.querySelector("#closeSelected"),
@@ -100,12 +100,8 @@ function bindEvents() {
   elements.search.addEventListener("input", render);
   elements.windowFilter.addEventListener("change", render);
   elements.includeExtensionTabs.addEventListener("change", render);
-  elements.selectVisible.addEventListener("click", () => selectTabs(getVisibleTabs().filter((tab) => !tab.isExtensionOwned)));
-  elements.selectAll.addEventListener("click", () => selectTabs(state.tabs.filter((tab) => !tab.isExtensionOwned)));
-  elements.clearSelection.addEventListener("click", () => {
-    state.selectedTabIds.clear();
-    render();
-  });
+  elements.selectVisible.addEventListener("change", handleSelectVisibleChange);
+  elements.selectAll.addEventListener("change", handleSelectAllChange);
   elements.bookmarkSelected.addEventListener("click", () => runSelectedAction("bookmarkTabs"));
   elements.discardSelected.addEventListener("click", () => runSelectedAction("discardTabs"));
   elements.closeSelected.addEventListener("click", () => runSelectedAction("closeTabs"));
@@ -120,6 +116,33 @@ function bindEvents() {
   elements.groups.addEventListener("drop", handleDrop);
   elements.modeToggle.addEventListener("click", handleModeToggle);
   document.addEventListener("keydown", handleSearchShortcut);
+  subscribeToTabChanges();
+}
+
+// Keep the dashboard in sync while it's open: tabs closed/created/moved
+// anywhere else in the browser are mirrored here automatically. Extension
+// pages can listen on chrome.tabs directly; each event just triggers a
+// normal reload (same path as the 刷新 button).
+function subscribeToTabChanges() {
+  let refreshTimer = null;
+  const scheduleRefresh = () => {
+    // Debounce: bulk restores/closes fire a storm of events; one reload at
+    // the end is enough and keeps re-renders from flickering.
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      Promise.all([loadTabs(), loadWindows()]);
+    }, 250);
+  };
+  chrome.tabs.onCreated.addListener(scheduleRefresh);
+  chrome.tabs.onRemoved.addListener(scheduleRefresh);
+  chrome.tabs.onUpdated.addListener(scheduleRefresh);
+  chrome.tabs.onMoved.addListener(scheduleRefresh);
+  chrome.tabs.onAttached.addListener(scheduleRefresh);
+  chrome.tabs.onDetached.addListener(scheduleRefresh);
+  chrome.tabs.onReplaced.addListener(scheduleRefresh);
+  chrome.windows.onCreated.addListener(scheduleRefresh);
+  chrome.windows.onRemoved.addListener(scheduleRefresh);
 }
 
 // Cmd+K (mac) or Ctrl+K (windows/linux) — focus the search input. We accept
@@ -279,6 +302,7 @@ function render() {
     ? groups.map(renderGroup).join("")
     : `<div class="empty">没有匹配的标签。</div>`;
 
+  syncSelectionCheckboxes(visibleTabs);
   renderWindowOptions();
 }
 
@@ -290,16 +314,25 @@ function renderGroup(group) {
   const saveWindowButton = state.mode === GROUPING_MODES.BY_WINDOW
     ? `<button data-group-save-window="${group.key}">保存本组</button>`
     : "";
+  // 组头 checkbox 与行内 checkbox 同一套语义：全选才勾选；点击已勾选的框
+  // 即取消本组，未勾选则选中本组。状态由 render 时的 selection 推导。
+  const selectable = group.tabs.filter((tab) => !tab.isExtensionOwned);
+  const groupChecked = selectable.length > 0 && selectable.every((tab) => state.selectedTabIds.has(tab.tabId));
+  const groupCheckbox = selectable.length
+    ? `<input type="checkbox" class="group-select" title="选择本组" aria-label="选择本组" data-group-select="${group.key}" ${groupChecked ? "checked" : ""}>`
+    : "";
   return `
     <article class="tab-group" ${draggableAttrs} ${dragHint}>
       <header class="group-header">
-        <div>
-          <h2>${escapeHtml(group.label)}</h2>
-          <p>${group.tabs.length} 个标签</p>
+        <div class="group-title">
+          ${groupCheckbox}
+          <div>
+            <h2>${escapeHtml(group.label)}</h2>
+            <p>${group.tabs.length} 个标签</p>
+          </div>
         </div>
         <div class="group-actions">
           ${saveWindowButton}
-          <button data-group-select="${group.key}">选择本组</button>
           <button data-group-bookmark="${group.key}">收藏本组</button>
           <button data-group-discard="${group.key}">释放本组</button>
           <button class="danger" data-group-close="${group.key}">关闭本组</button>
@@ -316,7 +349,9 @@ function renderTab(tab) {
   const checked = state.selectedTabIds.has(tab.tabId) ? "checked" : "";
   const disabled = tab.isExtensionOwned && !elements.includeExtensionTabs.checked ? "disabled" : "";
   const sourceLabel = tab.ageSource === "recorded" ? "真实记录" : tab.ageSource === "estimated" ? "历史估算" : "未知";
-  const icon = tab.favIconUrl ? `<img src="${escapeAttribute(tab.favIconUrl)}" alt="">` : `<span class="favicon-fallback">•</span>`;
+  const icon = tab.favIconUrl
+    ? `<img src="${escapeAttribute(tab.favIconUrl)}" alt="">`
+    : renderFaviconFallback(tab.url);
   const draggable = state.mode === GROUPING_MODES.BY_WINDOW && !tab.isExtensionOwned ? `draggable="true"` : "";
   return `
     <div class="tab-row ${tab.isExtensionOwned ? "protected" : ""}" data-tab-id="${tab.tabId}" ${draggable}>
@@ -336,6 +371,14 @@ function renderTab(tab) {
       </span>
     </div>
   `;
+}
+
+// Same rule as lazy-tab.html's letter favicon: host hash → stable color,
+// first host letter — so a tab without an icon looks the same here as its
+// restored placeholder does in the tab strip.
+function renderFaviconFallback(url) {
+  const { letter, color } = faviconFallback(url);
+  return `<span class="favicon-fallback" style="background:${color}">${escapeHtml(letter)}</span>`;
 }
 
 function getVisibleTabs() {
@@ -364,6 +407,17 @@ function groupVisibleTabs(visibleTabs) {
 }
 
 function handleGroupChange(event) {
+  const groupSelect = event.target.closest("[data-group-select]");
+  if (groupSelect) {
+    const groupTabs = getVisibleTabs().filter((tab) => tab.groupKey === groupSelect.dataset.groupSelect && !tab.isExtensionOwned);
+    if (groupSelect.checked) {
+      for (const tab of groupTabs) state.selectedTabIds.add(tab.tabId);
+    } else {
+      for (const tab of groupTabs) state.selectedTabIds.delete(tab.tabId);
+    }
+    render();
+    return;
+  }
   const checkbox = event.target.closest("[data-tab-id]");
   if (!checkbox) return;
   const tabId = Number(checkbox.dataset.tabId);
@@ -386,14 +440,10 @@ async function handleGroupClick(event) {
       return;
     }
 
-    const groupKey = button.dataset.groupSelect || button.dataset.groupBookmark || button.dataset.groupDiscard || button.dataset.groupClose;
+    const groupKey = button.dataset.groupBookmark || button.dataset.groupDiscard || button.dataset.groupClose;
     if (!groupKey) return;
 
     const groupTabs = getVisibleTabs().filter((tab) => tab.groupKey === groupKey && !tab.isExtensionOwned);
-    if (button.dataset.groupSelect) {
-      selectTabs(groupTabs);
-      return;
-    }
     if (button.dataset.groupBookmark) await runAction("bookmarkTabs", groupTabs.map((tab) => tab.tabId));
     if (button.dataset.groupDiscard) await runAction("discardTabs", groupTabs.map((tab) => tab.tabId));
     if (button.dataset.groupClose) await runAction("closeTabs", groupTabs.map((tab) => tab.tabId));
@@ -403,12 +453,24 @@ async function handleGroupClick(event) {
   // Clicking the row body (not a button, not the checkbox) toggles selection.
   // The native checkbox change handler still fires when the checkbox itself is clicked.
   const row = event.target.closest(".tab-row");
-  if (!row) return;
+  if (row) {
+    if (event.target.closest('input[type="checkbox"]')) return;
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    if (!checkbox || checkbox.disabled) return;
+    checkbox.checked = !checkbox.checked;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+
+  // Same trick for the group header: blank areas of the header toggle the
+  // 选择本组 checkbox, so users don't have to hit the small box itself.
+  const header = event.target.closest(".group-header");
+  if (!header) return;
   if (event.target.closest('input[type="checkbox"]')) return;
-  const checkbox = row.querySelector('input[type="checkbox"]');
-  if (!checkbox || checkbox.disabled) return;
-  checkbox.checked = !checkbox.checked;
-  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  const groupCheckbox = header.querySelector("[data-group-select]");
+  if (!groupCheckbox) return;
+  groupCheckbox.checked = !groupCheckbox.checked;
+  groupCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 async function runGroupSaveWindow(groupKey) {
@@ -471,11 +533,36 @@ async function handleRowAction(button) {
   return false;
 }
 
-function selectTabs(tabs) {
-  for (const tab of tabs) {
-    state.selectedTabIds.add(tab.tabId);
+// Toolbar checkboxes are tri-state mirrors of the selection, not one-shot
+// buttons: each is only checked when its scope is FULLY selected; clicking a
+// checked box deselects that scope, clicking an unchecked box selects it.
+// render() re-derives their checked state, so group/row checkboxes and these
+// stay in sync both ways.
+function handleSelectVisibleChange() {
+  const visible = getVisibleTabs().filter((tab) => !tab.isExtensionOwned);
+  if (visible.length && visible.every((tab) => state.selectedTabIds.has(tab.tabId))) {
+    for (const tab of visible) state.selectedTabIds.delete(tab.tabId);
+  } else {
+    for (const tab of visible) state.selectedTabIds.add(tab.tabId);
   }
   render();
+}
+
+function handleSelectAllChange() {
+  const all = state.tabs.filter((tab) => !tab.isExtensionOwned);
+  if (all.length && all.every((tab) => state.selectedTabIds.has(tab.tabId))) {
+    for (const tab of all) state.selectedTabIds.delete(tab.tabId);
+  } else {
+    for (const tab of all) state.selectedTabIds.add(tab.tabId);
+  }
+  render();
+}
+
+function syncSelectionCheckboxes(visibleTabs) {
+  const visible = visibleTabs.filter((tab) => !tab.isExtensionOwned);
+  const all = state.tabs.filter((tab) => !tab.isExtensionOwned);
+  elements.selectVisible.checked = visible.length > 0 && visible.every((tab) => state.selectedTabIds.has(tab.tabId));
+  elements.selectAll.checked = all.length > 0 && all.every((tab) => state.selectedTabIds.has(tab.tabId));
 }
 
 async function runSelectedAction(type) {

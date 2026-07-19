@@ -508,11 +508,42 @@ small {
   padding: 1rem;
   border-bottom: 1px solid var(--line);
   background: var(--panel-soft);
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.group-header:hover {
+  background: var(--accent-row);
 }
 
 .group-header p {
   margin-bottom: 0;
   color: var(--muted);
+}
+
+/* Group title row: the 选择本组 checkbox sits at the far left of the header,
+ * aligned with the row checkboxes below (header padding 1rem vs row padding
+ * 1rem + checkbox column), so the whole column of checkboxes lines up. */
+.group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* All dashboard checkboxes (toolbar global / group header / tab row) share
+ * one geometry: a small 13px VISUAL box inside a larger hit area. The
+ * transparent padding enlarges the clickable region without growing the
+ * painted square; background-clip keeps accent-color inside the 13px box.
+ * margin: 0 everywhere so the three columns stay pixel-aligned. */
+.bulk-panel input[type="checkbox"],
+.group-select,
+.tab-row input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  padding: 4px;
+  margin: 0;
+  background-clip: content-box;
+  cursor: pointer;
 }
 
 .group-actions {
@@ -563,6 +594,19 @@ small {
 .favicon-fallback {
   width: 20px;
   height: 20px;
+}
+
+/* Letter fallback for tabs without a favicon — mirrors lazy-tab.html's
+ * letter favicon: host-hash background color, white first letter. */
+.favicon-fallback {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
 }
 
 .tab-main {
