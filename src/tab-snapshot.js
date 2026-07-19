@@ -34,7 +34,32 @@ function isCapturableUrl(url) {
   return !NON_CAPTURABLE_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
+// A lazy-tab placeholder carries the original page in its query string
+// (.../lazy-tab.html?url=<real>&title=...&favIconUrl=...). If a snapshot is
+// re-saved while some restored tabs are still placeholders, unwrap them so
+// the real URL — not the chrome-extension:// placeholder — is what persists.
+export function unwrapLazyTabUrl(url) {
+  if (typeof url !== "string" || !url.includes("/lazy-tab.html?")) return null;
+  const query = url.slice(url.indexOf("?") + 1);
+  const realUrl = new URLSearchParams(query).get("url");
+  return realUrl || null;
+}
+
 function pickTab(tab) {
+  const unwrappedUrl = unwrapLazyTabUrl(tab.url);
+  if (unwrappedUrl) {
+    // The placeholder page never loaded the real site, so its live favIconUrl
+    // is our generated letter icon — keep the snapshot's original metadata by
+    // re-reading it from the query string instead of the live tab.
+    const params = new URLSearchParams(tab.url.slice(tab.url.indexOf("?") + 1));
+    return {
+      url: unwrappedUrl,
+      title: params.get("title") || unwrappedUrl,
+      pinned: Boolean(tab.pinned),
+      index: typeof tab.index === "number" ? tab.index : 0,
+      favIconUrl: params.get("favIconUrl") || ""
+    };
+  }
   return {
     url: tab.url,
     title: tab.title || tab.url || "",
@@ -55,7 +80,9 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
   const byWindow = new Map();
   for (const tab of tabs) {
     if (!knownWindowIds.has(tab.windowId)) continue;
-    if (!isCapturableUrl(tab.url)) continue;
+    // Our own lazy-tab placeholders pass the filter via their embedded real
+    // URL; other chrome-extension:// pages are still dropped.
+    if (!isCapturableUrl(tab.url) && !unwrapLazyTabUrl(tab.url)) continue;
     if (!byWindow.has(tab.windowId)) byWindow.set(tab.windowId, []);
     byWindow.get(tab.windowId).push(tab);
   }

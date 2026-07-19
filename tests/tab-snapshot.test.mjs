@@ -4,7 +4,8 @@ import {
   captureSnapshot,
   formatSnapshotLabel,
   generateSnapshotId,
-  planRestore
+  planRestore,
+  unwrapLazyTabUrl
 } from "../src/tab-snapshot.js";
 
 test("generateSnapshotId embeds the timestamp", () => {
@@ -127,6 +128,50 @@ test("captureSnapshot defaults favIconUrl to empty string", () => {
   assert.equal(snap.windows[0].tabs[0].favIconUrl, "");
 });
 
+test("captureSnapshot unwraps lazy-tab placeholders back to the real page", () => {
+  // A restored-but-never-activated tab: URL is the extension placeholder,
+  // live title/favIconUrl are the placeholder's own (letter icon etc.).
+  const lazyUrl =
+    "chrome-extension://abc/lazy-tab.html?" +
+    new URLSearchParams({
+      url: "https://real.com/page?x=1",
+      title: "真实标题",
+      favIconUrl: "https://real.com/f.ico"
+    }).toString();
+  const tabs = [
+    { windowId: 11, index: 0, url: "https://active.com", title: "Active", active: true, favIconUrl: "" },
+    { windowId: 11, index: 1, url: lazyUrl, title: "真实标题", active: false, favIconUrl: "data:image/png;base64,xxx" }
+  ];
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.tabCount, 2);
+  assert.deepEqual(snap.windows[0].tabs[1], {
+    url: "https://real.com/page?x=1",
+    title: "真实标题",
+    pinned: false,
+    index: 1,
+    favIconUrl: "https://real.com/f.ico"
+  });
+});
+
+test("captureSnapshot still drops other extension pages", () => {
+  const tabs = [
+    { windowId: 11, index: 0, url: "chrome-extension://abc/dashboard.html", active: true },
+    { windowId: 11, index: 1, url: "chrome-extension://other/popup.html?url=https://x.com", active: false }
+  ];
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.tabCount, 0);
+});
+
+test("unwrapLazyTabUrl returns the embedded URL or null", () => {
+  const lazy = "chrome-extension://abc/lazy-tab.html?url=" + encodeURIComponent("https://a.com/") + "&title=A";
+  assert.equal(unwrapLazyTabUrl(lazy), "https://a.com/");
+  assert.equal(unwrapLazyTabUrl("https://a.com/"), null);
+  assert.equal(unwrapLazyTabUrl("chrome-extension://abc/lazy-tab.html"), null); // no query
+  assert.equal(unwrapLazyTabUrl("chrome-extension://abc/lazy-tab.html?title=A"), null); // no url param
+  assert.equal(unwrapLazyTabUrl(""), null);
+  assert.equal(unwrapLazyTabUrl(null), null);
+});
+
 test("planRestore moves the activeIndex URL to position 0", () => {
   const snap = {
     windows: [
@@ -178,6 +223,40 @@ test("planRestore plans each window independently", () => {
   const plan = planRestore(snap);
   assert.deepEqual(plan.windows[0].urls, ["https://b.com", "https://a.com"]);
   assert.deepEqual(plan.windows[1].urls, ["https://c.com", "https://d.com"]);
+});
+
+test("lazy-tab round-trip preserves hostile URLs and titles exactly", () => {
+  // Simulate: buildLazyTabUrl encodes → unwrapLazyTabUrl decodes. Special
+  // characters (& = ? # % + spaces, CJK, emoji) must survive byte-for-byte.
+  const hostile = {
+    url: "https://example.com/search?q=a%26b&x=1+2&lang=中文#frag%20ment?x=1",
+    title: "A & B = 100% ✅ \"引号\" <标签>",
+    favIconUrl: "https://example.com/f.ico?size=32&fmt=png"
+  };
+  const built =
+    "chrome-extension://abc/lazy-tab.html?" +
+    new URLSearchParams({ url: hostile.url, title: hostile.title, favIconUrl: hostile.favIconUrl }).toString();
+
+  assert.equal(unwrapLazyTabUrl(built), hostile.url);
+
+  const tabs = [{ windowId: 1, index: 0, url: built, title: hostile.title, active: true }];
+  const snap = captureSnapshot(tabs, [{ id: 1 }], 1000);
+  assert.equal(snap.windows[0].tabs[0].url, hostile.url);
+  assert.equal(snap.windows[0].tabs[0].title, hostile.title);
+  assert.equal(snap.windows[0].tabs[0].favIconUrl, hostile.favIconUrl);
+});
+
+test("lazy-tab round-trip survives a double restore (placeholder inside placeholder never happens)", () => {
+  // Restoring a snapshot whose tab was itself unwrapped from a placeholder
+  // must produce a REAL url in the next snapshot, never a nested lazy URL.
+  const real = "https://a.com/?redirect=https%3A%2F%2Fb.com%2F%3Fnested%3D1";
+  const lazy1 = "chrome-extension://abc/lazy-tab.html?" + new URLSearchParams({ url: real, title: "t", favIconUrl: "" }).toString();
+  const snap1 = captureSnapshot([{ windowId: 1, index: 0, url: lazy1, active: true }], [{ id: 1 }], 1000);
+  assert.equal(snap1.windows[0].tabs[0].url, real);
+  // Re-wrap for a second restore, capture again: still the same real URL.
+  const lazy2 = "chrome-extension://abc/lazy-tab.html?" + new URLSearchParams({ url: snap1.windows[0].tabs[0].url, title: "t", favIconUrl: "" }).toString();
+  const snap2 = captureSnapshot([{ windowId: 1, index: 0, url: lazy2, active: true }], [{ id: 1 }], 2000);
+  assert.equal(snap2.windows[0].tabs[0].url, real);
 });
 
 test("planRestore with lazyUrlFor keeps the active tab real and lazy-wraps the rest", () => {
