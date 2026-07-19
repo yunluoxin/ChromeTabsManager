@@ -108,8 +108,29 @@ html[data-theme-bootstrap="dark"] :root {
   box-sizing: border-box;
 }
 
+/* Paint the page background on <html> as well as <body>: when the content
+ * is shorter than the viewport, body stops at the content edge and an
+ * unpainted canvas shows through below it (visible as a dark block at the
+ * bottom in dark mode). html's background covers the whole canvas. */
+html {
+  min-height: 100%;
+  background: var(--bg);
+}
+
+/* Theme tokens live on <body> (see theme.js), so the html-level canvas
+ * color must key off the theme attributes explicitly — first the no-flash
+ * bootstrap attribute, then the resolved body attribute. */
+html[data-theme-bootstrap="dark"] {
+  background: #15140f;
+}
+
+html:has(body[data-theme="dark"]) {
+  background: #15140f;
+}
+
 body {
   margin: 0;
+  min-height: 100vh;
   background:
     radial-gradient(circle at top left, var(--accent-soft), transparent 30rem),
     var(--bg);
@@ -396,12 +417,14 @@ small {
   font-size: 0.75rem;
 }
 
-/* The head is a 3-cell row: title left, count + manage button right. */
+/* The head is a 3-cell row: title left, count + manage button right, with
+ * breathing room between the count and the button. */
 .snapshot-section__head #snapshotCount {
   margin-left: auto;
 }
 
 .snapshot-manage-button {
+  margin-left: 0.5rem;
   padding: 0.18rem 0.6rem;
   border-radius: 8px;
   background: var(--button-bg);
