@@ -495,7 +495,7 @@ small {
 .inline-check {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.75rem;
   color: var(--muted);
 }
 
@@ -548,19 +548,23 @@ small {
   gap: 0.75rem;
 }
 
-/* All dashboard checkboxes (toolbar global / group header / tab row) share
- * one geometry: a small 13px VISUAL box inside a larger hit area. The
- * transparent padding enlarges the clickable region without growing the
- * painted square; background-clip keeps accent-color inside the 13px box.
- * margin: 0 everywhere so the three columns stay pixel-aligned. */
+/* All management-page checkboxes (dashboard toolbar global / group header /
+ * tab row, snapshot manager select-all / row) share one geometry: a small
+ * 13px VISUAL box inside a larger hit area. The transparent padding enlarges
+ * the clickable region without growing the painted square; background-clip
+ * keeps accent-color inside the 13px box. margin: 0 everywhere so the
+ * columns stay pixel-aligned. */
 .bulk-panel input[type="checkbox"],
 .group-select,
-.tab-row input[type="checkbox"] {
+.tab-row input[type="checkbox"],
+.selection-bar input[type="checkbox"],
+.snapshot-row__check {
   width: 13px;
   height: 13px;
   padding: 4px;
   margin: 0;
   background-clip: content-box;
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -919,8 +923,8 @@ body[data-mode="by-age"] .move-controls {
 .snapshot-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 0.7rem;
+  gap: 12px;
+  padding: 9px 16px;
   border-radius: 10px;
   background: var(--panel-soft);
   cursor: pointer;
@@ -995,10 +999,11 @@ body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
   flex: 1 1 16rem;
 }
 
+/* Left/right padding MUST equal .snapshot-row's (16px) so the 全选 checkbox
+ * and every row's checkbox share the same left edge. */
 .selection-bar {
   align-items: center;
-  padding-top: 0.7rem;
-  padding-bottom: 0.7rem;
+  padding: 11px 16px;
 }
 
 /* The list is a single full-width column; the preview is a modal dialog on
@@ -1022,9 +1027,6 @@ body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
 
 .snapshot-row__check {
   flex-shrink: 0;
-  width: 1rem;
-  height: 1rem;
-  accent-color: var(--accent);
 }
 
 /* Modal preview: dimmed backdrop centers the dialog; clicks outside close

@@ -183,7 +183,6 @@ function renderRow(snapshot) {
       </div>
       <div class="snapshot-row__actions">
         <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">⟳</button>
-        <button type="button" class="icon-button" data-action="preview" title="预览" aria-label="预览">☰</button>
         <button type="button" class="icon-button" data-action="export" title="导出" aria-label="导出">⇩</button>
         <button type="button" class="icon-button" data-action="rename" title="修改名称" aria-label="修改名称">✎</button>
         <button type="button" class="icon-button icon-button--danger" data-action="delete" title="删除" aria-label="删除">×</button>
@@ -228,12 +227,10 @@ async function handleListClick(event) {
   if (event.target.closest(".snapshot-row__check")) return;
 
   // Row body click = restore: the preview dialog opens and the user
-  // confirms inside it. ☰ opens the same dialog for a pure look.
+  // confirms inside it (same as the ⟳ button).
   const action = event.target.closest("button[data-action]")?.dataset.action ?? "restore";
   if (action === "restore") {
     await restoreSnapshotById(id);
-  } else if (action === "preview") {
-    await openPreview(id);
   } else if (action === "export") {
     await exportSnapshotsByIds([id]);
   } else if (action === "rename") {
