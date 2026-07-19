@@ -18,6 +18,7 @@ const elements = {
   saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
   snapshotList: document.querySelector("#snapshotList"),
   snapshotCount: document.querySelector("#snapshotCount"),
+  openSnapshotManager: document.querySelector("#openSnapshotManager"),
   themeToggle: document.querySelector("#themeToggle")
 };
 
@@ -73,6 +74,7 @@ function bindEvents() {
   elements.saveAll.addEventListener("click", () => saveAllTabs());
   elements.saveCurrentWindow.addEventListener("click", () => saveCurrentWindowTabs());
   elements.snapshotList.addEventListener("click", handleSnapshotListClick);
+  elements.openSnapshotManager.addEventListener("click", () => sendMessage({ type: "openSnapshotManager" }));
 }
 
 const resetTimers = new WeakMap();

@@ -396,6 +396,24 @@ small {
   font-size: 0.75rem;
 }
 
+/* The head is a 3-cell row: title left, count + manage button right. */
+.snapshot-section__head #snapshotCount {
+  margin-left: auto;
+}
+
+.snapshot-manage-button {
+  padding: 0.18rem 0.6rem;
+  border-radius: 8px;
+  background: var(--button-bg);
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.snapshot-manage-button:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .action-button {
   display: inline-flex;
   align-items: center;
@@ -959,6 +977,185 @@ body[data-mode="by-age"] .move-controls {
  * text instead. */
 body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
   color: #15140f;
+}
+
+/* ---- Snapshot manager page (snapshots.html) ---- */
+
+.snapshots-shell {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 3rem;
+}
+
+.snapshots-toolbar {
+  align-items: center;
+}
+
+.snapshots-toolbar input[type="search"] {
+  flex: 1 1 16rem;
+}
+
+.selection-bar {
+  align-items: center;
+  padding-top: 0.7rem;
+  padding-bottom: 0.7rem;
+}
+
+/* The list is a single full-width column; the preview is a modal dialog on
+ * top, so rows always keep their full width. */
+.snapshot-manager-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.snapshot-manager-row {
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.snapshot-manager-row.is-previewing {
+  border-color: var(--accent-soft-strong);
+  background: var(--accent-row-checked);
+}
+
+.snapshot-row__check {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+/* Modal preview: dimmed backdrop centers the dialog; clicks outside close
+ * it (handled in snapshots.js). */
+.snapshot-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgba(20, 18, 14, 0.45);
+}
+
+.snapshot-preview {
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: calc(100vh - 4rem);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.snapshot-preview__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-soft);
+}
+
+.snapshot-preview__head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.snapshot-preview__head p {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+}
+
+.snapshot-preview__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.75rem 1rem;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.snapshot-preview__foot {
+  padding: 0.85rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.snapshot-preview__foot button {
+  width: 100%;
+}
+
+.preview-window h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.preview-tab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.preview-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.45rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.preview-tab:hover {
+  background: var(--accent-row);
+}
+
+.preview-tab__icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.preview-tab__icon--placeholder {
+  background: var(--badge-bg);
+}
+
+.preview-tab__title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.preview-tab__badge {
+  flex-shrink: 0;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--badge-bg);
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.preview-tab__badge--active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* The hidden attribute only carries the UA's display:none, which any author
+ * display rule (e.g. .snapshot-preview's flex) beats — restate it so
+ * toggling `hidden` in JS always wins. */
+[hidden] {
+  display: none !important;
 }
 
 /* Transient feedback (toast). The host is fixed at the top-center of the

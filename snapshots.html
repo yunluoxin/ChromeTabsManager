@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>快照管理</title>
+    <link rel="stylesheet" href="src/styles.css">
+    <script src="src/theme-bootstrap.js"></script>
+  </head>
+  <body class="snapshots-body">
+    <main class="snapshots-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Chrome Tab Manager</p>
+          <h1>快照管理</h1>
+          <p id="snapshotSummary" class="muted">正在读取快照…</p>
+        </div>
+        <div class="hero-actions">
+          <div id="themeToggle" class="theme-toggle" role="tablist" aria-label="主题">
+            <button type="button" data-theme="light" role="tab" aria-selected="false" title="浅色">浅</button>
+            <button type="button" data-theme="dark" role="tab" aria-selected="false" title="深色">深</button>
+            <button type="button" data-theme="system" role="tab" aria-selected="false" title="跟随系统">自</button>
+          </div>
+          <button id="refresh">刷新</button>
+        </div>
+      </header>
+
+      <section class="toolbar snapshots-toolbar">
+        <input id="search" type="search" placeholder="搜索快照名称">
+        <button id="saveAll" class="primary">保存所有窗口</button>
+        <button id="saveCurrentWindow">保存当前窗口</button>
+        <button id="importButton">导入快照</button>
+        <input id="importFile" type="file" accept=".json,application/json" hidden>
+      </section>
+
+      <section class="toolbar selection-bar" id="selectionBar" hidden>
+        <label class="inline-check">
+          <input id="selectAll" type="checkbox">
+          全选
+        </label>
+        <span id="selectionCount" class="muted"></span>
+        <button id="exportSelected">导出选中</button>
+        <button id="deleteSelected" class="danger">删除选中</button>
+      </section>
+
+      <div id="snapshotList" class="snapshot-manager-list"></div>
+    </main>
+
+    <div id="previewOverlay" class="snapshot-preview-overlay" hidden>
+      <div class="snapshot-preview" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+        <header class="snapshot-preview__head">
+          <div>
+            <h2 id="previewTitle">快照预览</h2>
+            <p id="previewStats" class="muted"></p>
+          </div>
+          <button id="closePreview" class="icon-button" title="关闭预览" aria-label="关闭预览">×</button>
+        </header>
+        <div id="previewBody" class="snapshot-preview__body"></div>
+        <footer class="snapshot-preview__foot">
+          <button id="restorePreview" class="primary">恢复此快照</button>
+        </footer>
+      </div>
+    </div>
+    <script type="module" src="src/snapshots.js"></script>
+  </body>
+</html>

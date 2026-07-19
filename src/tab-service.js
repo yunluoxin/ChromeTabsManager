@@ -16,7 +16,14 @@ import {
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
 import { groupTabsByWindow } from "./window-grouping.js";
-import { captureSnapshot, planRestore, unwrapLazyTabUrl } from "./tab-snapshot.js";
+import {
+  buildSnapshotExport,
+  captureSnapshot,
+  parseSnapshotImport,
+  planRestore,
+  snapshotExportFileName,
+  unwrapLazyTabUrl
+} from "./tab-snapshot.js";
 
 const SNAPSHOTS_KEY = "tabSnapshots";
 
@@ -576,4 +583,64 @@ export async function restoreSnapshot(id) {
     }
   }
   return summary;
+}
+
+// Full snapshot records (windows + tabs) for the manager page's preview and
+// export. listSnapshots stays summary-only for the popup's compact rows.
+export async function listSnapshotDetails() {
+  return readSnapshots();
+}
+
+// Batch delete; missing ids count as skipped, not failures — the manager page
+// multi-selects from a possibly-stale list, so a row vanishing mid-select is
+// normal, not an error.
+export async function deleteSnapshots(ids) {
+  const safeIds = new Set((ids || []).map((id) => String(id)));
+  const summary = createSummary();
+  if (safeIds.size === 0) {
+    summary.failed = 1;
+    summary.errors.push("没有选中的快照");
+    return summary;
+  }
+  const snapshots = await readSnapshots();
+  const next = snapshots.filter((snapshot) => !safeIds.has(snapshot.id));
+  const removed = snapshots.length - next.length;
+  summary.succeeded = removed;
+  summary.skipped = safeIds.size - removed;
+  if (removed > 0) {
+    await writeSnapshots(next);
+  }
+  return summary;
+}
+
+// Returns the export payload plus a suggested file name; the page builds the
+// Blob and triggers the download itself (service workers can't touch the DOM).
+export async function exportSnapshots(ids) {
+  const snapshots = await readSnapshots();
+  const wanted = Array.isArray(ids) && ids.length > 0 ? new Set(ids.map(String)) : null;
+  const selected = wanted ? snapshots.filter((snapshot) => wanted.has(snapshot.id)) : snapshots;
+  if (selected.length === 0) {
+    throw new Error("没有可导出的快照");
+  }
+  const exportedAt = Date.now();
+  return {
+    doc: buildSnapshotExport(selected, exportedAt),
+    fileName: snapshotExportFileName(selected, exportedAt),
+    count: selected.length
+  };
+}
+
+// Parses and validates the file in the pure layer, then merges. Existing
+// snapshots win on id — imports always come in under a fresh id instead.
+export async function importSnapshots(json) {
+  const snapshots = await readSnapshots();
+  const existingIds = new Set(snapshots.map((snapshot) => snapshot.id));
+  const result = parseSnapshotImport(json, { existingIds });
+  const merged = [...result.snapshots, ...snapshots];
+  await writeSnapshots(merged);
+  return {
+    imported: result.imported,
+    skipped: result.skipped,
+    summaries: result.snapshots.map(summarizeSnapshot)
+  };
 }
