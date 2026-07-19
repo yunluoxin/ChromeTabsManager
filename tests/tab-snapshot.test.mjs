@@ -105,12 +105,26 @@ test("captureSnapshot defaults activeIndex to 0 when no tab is active", () => {
   assert.equal(snap.windows[0].activeIndex, 0);
 });
 
-test("captureSnapshot stores pinned and index fields faithfully", () => {
+test("captureSnapshot stores pinned, index and favIconUrl fields faithfully", () => {
   const tabs = [
-    { windowId: 11, index: 7, url: "https://a.com", title: "A", active: true, pinned: true }
+    { windowId: 11, index: 7, url: "https://a.com", title: "A", active: true, pinned: true, favIconUrl: "https://a.com/f.ico" }
   ];
   const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
-  assert.deepEqual(snap.windows[0].tabs[0], { url: "https://a.com", title: "A", pinned: true, index: 7 });
+  assert.deepEqual(snap.windows[0].tabs[0], {
+    url: "https://a.com",
+    title: "A",
+    pinned: true,
+    index: 7,
+    favIconUrl: "https://a.com/f.ico"
+  });
+});
+
+test("captureSnapshot defaults favIconUrl to empty string", () => {
+  const tabs = [
+    { windowId: 11, index: 0, url: "https://a.com", active: true }
+  ];
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.windows[0].tabs[0].favIconUrl, "");
 });
 
 test("planRestore moves the activeIndex URL to position 0", () => {
@@ -164,4 +178,40 @@ test("planRestore plans each window independently", () => {
   const plan = planRestore(snap);
   assert.deepEqual(plan.windows[0].urls, ["https://b.com", "https://a.com"]);
   assert.deepEqual(plan.windows[1].urls, ["https://c.com", "https://d.com"]);
+});
+
+test("planRestore with lazyUrlFor keeps the active tab real and lazy-wraps the rest", () => {
+  const snap = {
+    windows: [
+      {
+        tabs: [
+          { url: "https://a.com", title: "A" },
+          { url: "https://b.com", title: "B" },
+          { url: "https://c.com", title: "C" }
+        ],
+        activeIndex: 1
+      }
+    ]
+  };
+  const plan = planRestore(snap, { lazyUrlFor: (tab) => `lazy:${tab.url}` });
+  // "b" was active → real URL at position 0; others go through the builder.
+  assert.deepEqual(plan.windows[0].urls, ["https://b.com", "lazy:https://a.com", "lazy:https://c.com"]);
+});
+
+test("planRestore with lazyUrlFor receives the tab's title and favIconUrl", () => {
+  const snap = {
+    windows: [
+      {
+        tabs: [
+          { url: "https://a.com", title: "A", favIconUrl: "https://a.com/f.ico" },
+          { url: "https://b.com", title: "B", favIconUrl: "" }
+        ],
+        activeIndex: 0
+      }
+    ]
+  };
+  const seen = [];
+  planRestore(snap, { lazyUrlFor: (tab) => { seen.push(tab); return "lazy"; } });
+  // Only the non-active tab goes through the builder, with all its fields.
+  assert.deepEqual(seen, [{ url: "https://b.com", title: "B", favIconUrl: "" }]);
 });

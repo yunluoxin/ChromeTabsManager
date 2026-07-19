@@ -513,6 +513,20 @@ export async function renameSnapshot(id, label) {
   return summarizeSnapshot(target);
 }
 
+// Builds the placeholder URL a restored background tab points at. The real
+// url/title/favIconUrl ride along in the query string; lazy-tab.js renders the
+// tab's identity from them and location.replace()s to the real page on
+// activation. Chrome-free logic stays in tab-snapshot.js — this builder needs
+// chrome.runtime.getURL, so it lives here.
+function buildLazyTabUrl(tab) {
+  const params = new URLSearchParams({
+    url: tab.url,
+    title: tab.title || "",
+    favIconUrl: tab.favIconUrl || ""
+  });
+  return `${chrome.runtime.getURL("lazy-tab.html")}?${params.toString()}`;
+}
+
 export async function restoreSnapshot(id) {
   const summary = createSummary();
   const snapshot = await getSnapshot(id);
@@ -521,7 +535,10 @@ export async function restoreSnapshot(id) {
     summary.errors.push("快照不存在");
     return summary;
   }
-  const plan = planRestore(snapshot);
+  // Only each window's active tab loads for real; the rest come back as
+  // near-free placeholder tabs. Restoring exists to free memory, so this is
+  // the whole point.
+  const plan = planRestore(snapshot, { lazyUrlFor: buildLazyTabUrl });
   for (const window of plan.windows) {
     if (!window.urls || window.urls.length === 0) {
       summary.failed += 1;

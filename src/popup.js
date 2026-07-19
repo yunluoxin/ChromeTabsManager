@@ -288,6 +288,9 @@ async function restoreSnapshotById(id) {
 }
 
 async function deleteSnapshotById(id) {
+  const target = state.snapshots.find((snapshot) => snapshot.id === id);
+  const name = target?.label || "这个快照";
+  if (!window.confirm(`删除快照「${name}」？删除后无法恢复。`)) return;
   try {
     await sendMessage({ type: "deleteSnapshot", id });
     state.snapshots = state.snapshots.filter((snapshot) => snapshot.id !== id);

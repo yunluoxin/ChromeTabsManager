@@ -6,12 +6,15 @@
 //
 //   {
 //     id, createdAt, label, windowCount, tabCount,
-//     windows: [{ tabs: [{ url, title, pinned, index }], activeIndex }]
+//     windows: [{ tabs: [{ url, title, pinned, index, favIconUrl }], activeIndex }]
 //   }
 //
 // Restore planning turns a snapshot into a per-window `urls` list where the
 // originally-active URL sits first, so `chrome.windows.create({ url: [...] })`
 // makes Chrome activate the right tab without a follow-up `tabs.update` call.
+// When a `lazyUrlFor` builder is supplied, every non-active URL is replaced by
+// that builder's output (a local placeholder page) so only the active tab of
+// each window actually loads on restore.
 
 const NON_CAPTURABLE_PREFIXES = ["chrome://", "chrome-extension://"];
 
@@ -36,7 +39,8 @@ function pickTab(tab) {
     url: tab.url,
     title: tab.title || tab.url || "",
     pinned: Boolean(tab.pinned),
-    index: typeof tab.index === "number" ? tab.index : 0
+    index: typeof tab.index === "number" ? tab.index : 0,
+    favIconUrl: tab.favIconUrl || ""
   };
 }
 
@@ -87,16 +91,23 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
   };
 }
 
-export function planRestore(snapshot) {
+export function planRestore(snapshot, { lazyUrlFor } = {}) {
   const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : [];
   return {
     windows: windows.map((window) => {
-      const urls = window.tabs.map((tab) => tab.url);
-      const idx = Math.max(0, Math.min(window.activeIndex ?? 0, urls.length - 1));
+      const tabs = Array.isArray(window.tabs) ? window.tabs : [];
+      const idx = Math.max(0, Math.min(window.activeIndex ?? 0, tabs.length - 1));
+      const ordered = tabs.slice();
       if (idx > 0) {
-        const [active] = urls.splice(idx, 1);
-        urls.unshift(active);
+        const [active] = ordered.splice(idx, 1);
+        ordered.unshift(active);
       }
+      // Position 0 is the tab Chrome will activate: always restore it for real.
+      // Everything else may be swapped for a cheap placeholder that only loads
+      // the real page when the user clicks the tab.
+      const urls = ordered.map((tab, position) =>
+        position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
+      );
       return { urls };
     })
   };
