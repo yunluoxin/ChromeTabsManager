@@ -16,7 +16,7 @@ import {
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
 import { groupTabsByWindow } from "./window-grouping.js";
-import { captureSnapshot, planRestore } from "./tab-snapshot.js";
+import { captureSnapshot, planRestore, unwrapLazyTabUrl } from "./tab-snapshot.js";
 
 const SNAPSHOTS_KEY = "tabSnapshots";
 
@@ -154,13 +154,29 @@ export async function getTabGroups({ mode = GROUPING_MODES.BY_AGE } = {}) {
 
 export function createTabViewModel(tab, metadata, currentWindow, extensionOrigin) {
   const ageTimestamp = metadata?.openedAt || metadata?.estimatedOpenedAt || null;
-  const isExtensionOwned = Boolean(tab.url?.startsWith(extensionOrigin));
+  const lazyRealUrl = unwrapLazyTabUrl(tab.url);
+  // A lazy-tab placeholder IS a real page from the user's point of view: show
+  // and treat it as the page it stands for. Title can come from the live tab
+  // (the placeholder sets document.title to the real title); the favicon must
+  // come from the query string because the live one is our generated letter
+  // icon.
+  let url = tab.url || "";
+  let title = tab.title || tab.url || "Untitled tab";
+  let favIconUrl = tab.favIconUrl || "";
+  if (lazyRealUrl) {
+    const params = new URLSearchParams(tab.url.slice(tab.url.indexOf("?") + 1));
+    url = lazyRealUrl;
+    title = tab.title || params.get("title") || lazyRealUrl;
+    favIconUrl = params.get("favIconUrl") || "";
+  }
+  const isExtensionOwned = !lazyRealUrl && Boolean(tab.url?.startsWith(extensionOrigin));
   return {
     tabId: tab.id,
     windowId: tab.windowId,
-    title: tab.title || tab.url || "Untitled tab",
-    url: tab.url || "",
-    favIconUrl: tab.favIconUrl || "",
+    title,
+    url,
+    favIconUrl,
+    isLazyPlaceholder: Boolean(lazyRealUrl),
     active: Boolean(tab.active),
     pinned: Boolean(tab.pinned),
     discarded: Boolean(tab.discarded),
@@ -189,6 +205,9 @@ export async function discardTabs(tabIds) {
     if (tab.active) throw new SkipTabError("活动标签已跳过");
     if (tab.pinned) throw new SkipTabError("固定标签已跳过");
     if (tab.discarded) throw new SkipTabError("已经释放");
+    // Lazy-tab placeholders are already memory-free; discarding them buys
+    // nothing and Chrome may refuse to discard an extension page anyway.
+    if (unwrapLazyTabUrl(tab.url)) throw new SkipTabError("休眠标签无需释放");
     await discardTab(tabId);
   });
 }
@@ -217,7 +236,8 @@ export async function moveTabsToWindow(tabIds, targetWindowId) {
   return runPerTab(safeIds, async (tabId) => {
     const tab = tabsById.get(tabId);
     if (!tab) throw new SkipTabError("标签不存在");
-    if (tab.isExtensionOwned || tab.url?.startsWith(chrome.runtime.getURL(""))) {
+    // Lazy-tab placeholders are movable — they stand for a real page.
+    if (tab.url?.startsWith(chrome.runtime.getURL("")) && !unwrapLazyTabUrl(tab.url)) {
       throw new SkipTabError("扩展页面已跳过");
     }
     if (tab.windowId === safeTarget) throw new SkipTabError("已在目标窗口");
@@ -246,7 +266,7 @@ export async function createWindowWithTabs(tabIds) {
       summary.errors.push(`#${tabId}: 标签不存在`);
       continue;
     }
-    if (tab.url?.startsWith(extensionOrigin)) {
+    if (tab.url?.startsWith(extensionOrigin) && !unwrapLazyTabUrl(tab.url)) {
       summary.failed += 1;
       summary.errors.push(`#${tabId}: 扩展页面已跳过`);
       continue;
