@@ -155,7 +155,16 @@ select {
 }
 
 .popup-body {
-  width: 380px;
+  width: 360px;
+}
+
+/* Popup: shell stacks the hero / actions / snapshot list; the snapshot
+ * list owns the internal scroll, so the popup itself stays short. */
+.popup-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 580px;
 }
 
 .popup-shell,
@@ -268,34 +277,123 @@ small {
   flex-direction: column;
 }
 
-.popup-shell .actions {
-  margin-top: 1rem;
+/* Hero stats — the popup's top-card summary bar. It doubles as the
+ * "open dashboard" entry: the whole bar is a button, the chevron hints
+ * it navigates somewhere. Numbers are tabular so counts never reflow. */
+.hero-stats {
+  display: flex;
+  align-items: center;
+  gap: 1.1rem;
+  width: 100%;
+  margin-top: 0.85rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-strong);
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
 }
 
-/* Sub-section inside .actions. Each group gets a thin top border and a
- * small uppercase title so the user can tell "释放内存" apart from
- * "保存与恢复" at a glance. The first group drops its own border so
- * only inter-group separators are visible. */
-.action-group {
+.hero-stats:hover {
+  border-color: var(--accent-soft-strong);
+  background: var(--accent-row);
+}
+
+.hero-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.hero-stat strong {
+  color: var(--accent);
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.hero-stat span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.hero-stat__divider {
+  width: 1px;
+  height: 1.4rem;
+  background: var(--line);
+}
+
+.hero-stats__chevron {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 1.15rem;
+  line-height: 1;
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.hero-stats:hover .hero-stats__chevron {
+  color: var(--accent);
+  transform: translateX(2px);
+}
+
+/* Popup quick actions: save buttons sit side by side, the ghost discard
+ * button takes the full row below. */
+.quick-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.action-button--ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+.action-button--ghost:hover {
+  border-color: var(--accent-soft-strong);
+  color: var(--accent);
+  filter: none;
+}
+
+.action-button--ghost.is-loading {
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.action-button--ghost.is-success {
+  border-color: transparent;
+  color: white;
+}
+
+/* Snapshot section — always visible in the popup. The list scrolls
+ * internally (roughly 5 rows visible) so many snapshots never grow the
+ * popup. Rows are click-to-restore; icon buttons keep rename/delete. */
+.snapshot-section {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid var(--line);
+  min-height: 0;
 }
 
-.action-group:first-child {
-  border-top: 0;
-  padding-top: 0.7rem;
+.snapshot-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 0.2rem 0.45rem;
 }
 
-.action-group__title {
-  margin: 0 0 0.1rem;
-  font-size: 0.72rem;
+.snapshot-section__head h2 {
+  margin: 0;
+  font-size: 0.78rem;
   font-weight: 700;
   color: var(--muted);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.snapshot-section__head span {
+  font-size: 0.75rem;
 }
 
 .action-button {
@@ -742,30 +840,33 @@ body[data-mode="by-age"] .move-controls {
   outline-offset: 2px;
 }
 
-/* Snapshot list shown under the popup's save/restore buttons. The
- * `.actions` container is `flex-direction: column`, so this list stacks
- * naturally with the surrounding buttons. */
+/* Snapshot list — the popup's always-on snapshot area. Internal scroll
+ * keeps the popup compact even with many snapshots. */
 .snapshot-list {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
-  padding: 0.6rem;
+  padding: 0.55rem;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
-}
-
-.snapshot-list[hidden] {
-  display: none;
+  overflow-y: auto;
+  max-height: 17rem;
 }
 
 .snapshot-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0.7rem;
+  padding: 0.55rem 0.7rem;
   border-radius: 10px;
   background: var(--panel-soft);
+  cursor: pointer;
+  transition: background-color 140ms ease;
+}
+
+.snapshot-row:hover {
+  background: var(--accent-row-hover);
 }
 
 .snapshot-row__meta {
@@ -782,18 +883,17 @@ body[data-mode="by-age"] .move-controls {
 
 .snapshot-row__stats {
   color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.snapshot-row__created {
-  color: var(--muted);
-  font-size: 0.7rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .snapshot-row__actions {
   display: inline-flex;
   gap: 0.3rem;
+  flex-shrink: 0;
 }
 
 .snapshot-empty {

@@ -21,28 +21,22 @@
             <button type="button" data-theme="system" role="tab" aria-selected="false" title="跟随系统" aria-label="跟随系统">◐</button>
           </div>
         </div>
-        <p id="summary" class="muted">正在读取标签…</p>
+        <button id="openDashboard" class="hero-stats" title="打开完整管理页" aria-label="打开完整管理页">
+          <span class="hero-stat">
+            <strong id="windowCount">…</strong>
+            <span>窗口</span>
+          </span>
+          <span class="hero-stat__divider" aria-hidden="true"></span>
+          <span class="hero-stat">
+            <strong id="tabCount">…</strong>
+            <span>标签</span>
+          </span>
+          <span class="hero-stats__chevron" aria-hidden="true">›</span>
+        </button>
       </header>
 
       <section class="actions">
-        <button id="openDashboard" class="primary">打开完整管理页</button>
-
-        <section class="action-group">
-          <h2 class="action-group__title">释放内存</h2>
-          <button id="discardAll" class="action-button">
-            <span class="action-button__label">释放所有标签内存</span>
-            <span class="action-button__spinner" aria-hidden="true"></span>
-            <span class="action-button__check" aria-hidden="true">✓</span>
-          </button>
-          <button id="discardOld" class="action-button">
-            <span class="action-button__label">释放旧标签内存</span>
-            <span class="action-button__spinner" aria-hidden="true"></span>
-            <span class="action-button__check" aria-hidden="true">✓</span>
-          </button>
-        </section>
-
-        <section class="action-group">
-          <h2 class="action-group__title">保存与恢复</h2>
+        <div class="quick-actions">
           <button id="saveAll" class="action-button">
             <span class="action-button__label">保存所有窗口</span>
             <span class="action-button__spinner" aria-hidden="true"></span>
@@ -53,16 +47,22 @@
             <span class="action-button__spinner" aria-hidden="true"></span>
             <span class="action-button__check" aria-hidden="true">✓</span>
           </button>
-          <button id="restoreAll" class="action-button">
-            <span class="action-button__label">恢复所有标签</span>
-            <span class="action-button__spinner" aria-hidden="true"></span>
-            <span class="action-button__check" aria-hidden="true">✓</span>
-          </button>
-          <div id="snapshotList" class="snapshot-list" hidden></div>
-        </section>
+        </div>
+        <button id="discardAll" class="action-button action-button--ghost">
+          <span class="action-button__label">释放所有标签内存</span>
+          <span class="action-button__spinner" aria-hidden="true"></span>
+          <span class="action-button__check" aria-hidden="true">✓</span>
+        </button>
+      </section>
+
+      <section class="snapshot-section">
+        <div class="snapshot-section__head">
+          <h2>快照</h2>
+          <span id="snapshotCount" class="muted"></span>
+        </div>
+        <div id="snapshotList" class="snapshot-list"></div>
       </section>
     </main>
     <script type="module" src="src/popup.js"></script>
   </body>
 </html>
-

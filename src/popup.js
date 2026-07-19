@@ -1,26 +1,23 @@
-import { isOldGroup } from "./age-grouping.js";
 import { formatActionSummary } from "./action-summary.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
 
 const state = {
-  groups: [],
   tabs: [],
   currentWindowId: null,
-  snapshotListOpen: false,
   snapshots: []
 };
 
 const elements = {
-  summary: document.querySelector("#summary"),
+  windowCount: document.querySelector("#windowCount"),
+  tabCount: document.querySelector("#tabCount"),
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
-  discardOld: document.querySelector("#discardOld"),
   saveAll: document.querySelector("#saveAll"),
   saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
-  restoreAll: document.querySelector("#restoreAll"),
   snapshotList: document.querySelector("#snapshotList"),
+  snapshotCount: document.querySelector("#snapshotCount"),
   themeToggle: document.querySelector("#themeToggle")
 };
 
@@ -29,7 +26,9 @@ init();
 async function init() {
   await initTheme();
   bindEvents();
-  await loadTabs();
+  // Snapshots and tab counts load in parallel; whichever resolves first
+  // renders its own section.
+  await Promise.all([loadTabs(), loadAndRenderSnapshots()]);
 }
 
 async function initTheme() {
@@ -71,10 +70,8 @@ function refreshThemeToggle(current) {
 function bindEvents() {
   elements.openDashboard.addEventListener("click", () => sendMessage({ type: "openDashboard" }));
   elements.discardAll.addEventListener("click", () => discardAllTabs());
-  elements.discardOld.addEventListener("click", () => discardOldTabs());
   elements.saveAll.addEventListener("click", () => saveAllTabs());
   elements.saveCurrentWindow.addEventListener("click", () => saveCurrentWindowTabs());
-  elements.restoreAll.addEventListener("click", () => toggleSnapshotList());
   elements.snapshotList.addEventListener("click", handleSnapshotListClick);
 }
 
@@ -103,51 +100,35 @@ function setButtonState(button, state) {
 }
 
 async function loadTabs() {
-  // The summary line doubles as the load indicator; render() will replace
-  // it with the actual counts as soon as the data arrives.
-  elements.summary.textContent = "正在读取标签…";
   const payload = await sendMessage({ type: "getTabs" });
-  state.groups = payload.groups;
   state.tabs = payload.tabs;
   state.currentWindowId = payload.currentWindowId;
   render();
 }
 
 function render() {
-  const currentWindowCount = state.tabs.filter((tab) => tab.windowId === state.currentWindowId).length;
-  elements.summary.textContent = `全部 ${state.tabs.length} 个 · 当前窗口 ${currentWindowCount} 个`;
+  const windowCount = new Set(state.tabs.map((tab) => tab.windowId)).size;
+  elements.windowCount.textContent = windowCount;
+  elements.tabCount.textContent = state.tabs.length;
 }
 
 async function discardAllTabs() {
   const tabIds = state.tabs
     .filter((tab) => !tab.isExtensionOwned)
     .map((tab) => tab.tabId);
-  await runDiscard(elements.discardAll, tabIds, "没有可释放的标签。");
-}
-
-async function discardOldTabs() {
-  const tabIds = state.groups
-    .filter((group) => isOldGroup(group.key))
-    .flatMap((group) => group.tabs)
-    .filter((tab) => !tab.isExtensionOwned)
-    .map((tab) => tab.tabId);
-  await runDiscard(elements.discardOld, tabIds, "没有可处理的旧标签。");
-}
-
-async function runDiscard(button, tabIds, emptyMessage) {
   if (tabIds.length === 0) {
-    showToast(emptyMessage);
+    showToast("没有可释放的标签。");
     return;
   }
 
-  setButtonState(button, "loading");
+  setButtonState(elements.discardAll, "loading");
   try {
     const result = await sendMessage({ type: "discardTabs", tabIds });
     await loadTabs();
     showToast(formatActionSummary(result));
-    setButtonState(button, "success");
+    setButtonState(elements.discardAll, "success");
   } catch (error) {
-    setButtonState(button, "idle");
+    setButtonState(elements.discardAll, "idle");
     throw error;
   }
 }
@@ -157,9 +138,7 @@ async function saveAllTabs() {
   try {
     const meta = await sendMessage({ type: "saveSnapshot" });
     showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
-    if (state.snapshotListOpen) {
-      await loadAndRenderSnapshots();
-    }
+    await loadAndRenderSnapshots();
     setButtonState(elements.saveAll, "success");
   } catch (error) {
     setButtonState(elements.saveAll, "idle");
@@ -176,21 +155,11 @@ async function saveCurrentWindowTabs() {
   try {
     const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: state.currentWindowId });
     showToast(`已保存：${meta.label} · ${meta.tabCount} 标签`);
-    if (state.snapshotListOpen) {
-      await loadAndRenderSnapshots();
-    }
+    await loadAndRenderSnapshots();
     setButtonState(elements.saveCurrentWindow, "success");
   } catch (error) {
     setButtonState(elements.saveCurrentWindow, "idle");
     throw error;
-  }
-}
-
-async function toggleSnapshotList() {
-  state.snapshotListOpen = !state.snapshotListOpen;
-  elements.snapshotList.hidden = !state.snapshotListOpen;
-  if (state.snapshotListOpen) {
-    await loadAndRenderSnapshots();
   }
 }
 
@@ -205,8 +174,9 @@ async function loadAndRenderSnapshots() {
 }
 
 function renderSnapshotList() {
+  elements.snapshotCount.textContent = state.snapshots.length > 0 ? `${state.snapshots.length} 个` : "";
   if (state.snapshots.length === 0) {
-    elements.snapshotList.innerHTML = `<div class="snapshot-empty">暂无快照</div>`;
+    elements.snapshotList.innerHTML = `<div class="snapshot-empty">暂无快照 · 点上方按钮保存当前状态</div>`;
     return;
   }
   elements.snapshotList.innerHTML = state.snapshots
@@ -218,19 +188,15 @@ function renderSnapshotRow(snapshot) {
   // The label and counts are numbers from our own storage, but keep the
   // defensive escaping in case anything in the chain ever changes.
   const label = escapeHtml(snapshot.label);
-  // The label is user-editable now, so the captured-at time needs to live on
-  // its own line — appending it to the stats line made long timestamps wrap.
   const createdAtLabel = escapeHtml(formatSnapshotLabel(snapshot.createdAt));
   return `
-    <div class="snapshot-row" data-snapshot-id="${escapeAttribute(snapshot.id)}">
+    <div class="snapshot-row" data-snapshot-id="${escapeAttribute(snapshot.id)}" title="点击恢复此快照">
       <div class="snapshot-row__meta">
         <span class="snapshot-row__time">${label}</span>
-        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签</span>
-        <span class="snapshot-row__created">${createdAtLabel}</span>
+        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}</span>
       </div>
       <div class="snapshot-row__actions">
         <button type="button" class="icon-button" data-action="rename" title="修改名称" aria-label="修改名称">✎</button>
-        <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">↺</button>
         <button type="button" class="icon-button icon-button--danger" data-action="delete" title="删除" aria-label="删除">×</button>
       </div>
     </div>
@@ -241,14 +207,15 @@ async function handleSnapshotListClick(event) {
   const row = event.target.closest(".snapshot-row");
   if (!row) return;
   const id = row.dataset.snapshotId;
-  const action = event.target.closest("button[data-action]")?.dataset.action;
-  if (!id || !action) return;
+  if (!id) return;
+  // Row body click restores; icon buttons do their own thing.
+  const action = event.target.closest("button[data-action]")?.dataset.action ?? "restore";
   if (action === "rename") {
     await renameSnapshotById(id);
-  } else if (action === "restore") {
-    await restoreSnapshotById(id);
   } else if (action === "delete") {
     await deleteSnapshotById(id);
+  } else {
+    await restoreSnapshotById(id);
   }
 }
 
