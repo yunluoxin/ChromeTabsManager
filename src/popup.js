@@ -18,6 +18,7 @@ const elements = {
   discardAll: document.querySelector("#discardAll"),
   discardOld: document.querySelector("#discardOld"),
   saveAll: document.querySelector("#saveAll"),
+  saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
   restoreAll: document.querySelector("#restoreAll"),
   snapshotList: document.querySelector("#snapshotList"),
   themeToggle: document.querySelector("#themeToggle")
@@ -72,6 +73,7 @@ function bindEvents() {
   elements.discardAll.addEventListener("click", () => discardAllTabs());
   elements.discardOld.addEventListener("click", () => discardOldTabs());
   elements.saveAll.addEventListener("click", () => saveAllTabs());
+  elements.saveCurrentWindow.addEventListener("click", () => saveCurrentWindowTabs());
   elements.restoreAll.addEventListener("click", () => toggleSnapshotList());
   elements.snapshotList.addEventListener("click", handleSnapshotListClick);
 }
@@ -161,6 +163,25 @@ async function saveAllTabs() {
     setButtonState(elements.saveAll, "success");
   } catch (error) {
     setButtonState(elements.saveAll, "idle");
+    throw error;
+  }
+}
+
+async function saveCurrentWindowTabs() {
+  if (state.currentWindowId == null) {
+    showToast("无法确定当前窗口。", { type: "error" });
+    return;
+  }
+  setButtonState(elements.saveCurrentWindow, "loading");
+  try {
+    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: state.currentWindowId });
+    showToast(`已保存：${meta.label} · ${meta.tabCount} 标签`);
+    if (state.snapshotListOpen) {
+      await loadAndRenderSnapshots();
+    }
+    setButtonState(elements.saveCurrentWindow, "success");
+  } catch (error) {
+    setButtonState(elements.saveCurrentWindow, "idle");
     throw error;
   }
 }
