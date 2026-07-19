@@ -139,3 +139,125 @@ export function planRestore(snapshot, { lazyUrlFor } = {}) {
     })
   };
 }
+
+/* ---- Export / import ----
+ *
+ * Snapshots export to a plain JSON file so the user can stash them outside
+ * the browser or move them between machines:
+ *
+ *   { format: "chrome-tab-snapshots", version: 1, exportedAt, snapshots: [...] }
+ *
+ * Import validates the envelope, re-checks every tab with the same
+ * capturability rules capture uses, rebuilds any missing counts, and
+ * regenerates ids so an import can never collide with (or overwrite) an
+ * existing snapshot. */
+
+export const SNAPSHOT_EXPORT_FORMAT = "chrome-tab-snapshots";
+export const SNAPSHOT_EXPORT_VERSION = 1;
+
+export function buildSnapshotExport(snapshots, exportedAt = Date.now()) {
+  const list = Array.isArray(snapshots) ? snapshots : [];
+  return {
+    format: SNAPSHOT_EXPORT_FORMAT,
+    version: SNAPSHOT_EXPORT_VERSION,
+    exportedAt,
+    snapshots: list
+  };
+}
+
+// Download file names come from the exported snapshots' own timestamps so two
+// exports of the same data produce the same name (Chrome just appends " (1)").
+export function snapshotExportFileName(snapshots, exportedAt = Date.now()) {
+  const list = Array.isArray(snapshots) ? snapshots : [];
+  const format = (ts) => {
+    const d = new Date(ts);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  };
+  const times = list
+    .map((snapshot) => snapshot?.createdAt)
+    .filter((ts) => Number.isFinite(ts));
+  if (list.length === 1 && times.length === 1) {
+    return `tab-snapshot-${format(times[0])}.json`;
+  }
+  return `tab-snapshots-${format(exportedAt)}.json`;
+}
+
+function sanitizeImportTab(tab) {
+  if (!tab || typeof tab !== "object") return null;
+  const url = typeof tab.url === "string" ? tab.url.trim() : "";
+  if (!isCapturableUrl(url)) return null;
+  return {
+    url,
+    title: typeof tab.title === "string" ? tab.title : url,
+    pinned: Boolean(tab.pinned),
+    index: Number.isFinite(tab.index) ? tab.index : 0,
+    favIconUrl: typeof tab.favIconUrl === "string" ? tab.favIconUrl : ""
+  };
+}
+
+// `existingIds` lets the caller reserve ids it already holds; regenerated ids
+// are guaranteed unique against both the reserve set and the import itself.
+// createdAt is injectable purely so tests stay deterministic.
+export function parseSnapshotImport(json, { existingIds = new Set(), createdAt = Date.now() } = {}) {
+  let doc;
+  try {
+    doc = JSON.parse(json);
+  } catch {
+    throw new Error("文件不是有效的 JSON");
+  }
+  if (!doc || typeof doc !== "object" || doc.format !== SNAPSHOT_EXPORT_FORMAT) {
+    throw new Error("不是有效的快照导出文件");
+  }
+  if (!Array.isArray(doc.snapshots)) {
+    throw new Error("导出文件中缺少快照列表");
+  }
+
+  const reserved = new Set(existingIds);
+  const snapshots = [];
+  let skipped = 0;
+
+  for (const raw of doc.snapshots) {
+    if (!raw || typeof raw !== "object") { skipped += 1; continue; }
+    const rawWindows = Array.isArray(raw.windows) ? raw.windows : [];
+    const windows = [];
+    let tabCount = 0;
+    for (const rawWindow of rawWindows) {
+      const rawTabs = Array.isArray(rawWindow?.tabs) ? rawWindow.tabs : [];
+      const tabs = rawTabs.map(sanitizeImportTab).filter(Boolean);
+      if (tabs.length === 0) continue;
+      const activeIndex = Number.isFinite(rawWindow?.activeIndex)
+        ? Math.max(0, Math.min(rawWindow.activeIndex, tabs.length - 1))
+        : 0;
+      windows.push({ tabs, activeIndex });
+      tabCount += tabs.length;
+    }
+    if (windows.length === 0) { skipped += 1; continue; }
+
+    // Reuse the original id when it's free; otherwise mint a fresh one by
+    // bumping the timestamp suffix until it clears the reserve set.
+    let id = typeof raw.id === "string" && raw.id.trim() ? raw.id.trim() : "";
+    if (!id || reserved.has(id)) {
+      let bump = 0;
+      do {
+        id = generateSnapshotId(createdAt + bump);
+        bump += 1;
+      } while (reserved.has(id));
+    }
+    reserved.add(id);
+
+    snapshots.push({
+      id,
+      createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : createdAt,
+      label: typeof raw.label === "string" && raw.label.trim() ? raw.label.trim() : "导入的快照",
+      windowCount: windows.length,
+      tabCount,
+      windows
+    });
+  }
+
+  if (snapshots.length === 0) {
+    throw new Error(skipped > 0 ? "文件中的快照都不可导入" : "文件中没有快照");
+  }
+  return { snapshots, imported: snapshots.length, skipped };
+}

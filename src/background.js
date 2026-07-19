@@ -5,7 +5,11 @@ import {
   createWindowWithTabs,
   discardTabs,
   deleteSnapshot,
+  deleteSnapshots,
+  exportSnapshots,
+  getSnapshot,
   getTabGroups,
+  importSnapshots,
   listSnapshots,
   listWindows,
   moveTabsToWindow,
@@ -66,6 +70,8 @@ async function handleMessage(message) {
       return createWindowWithTabs(message.tabIds || []);
     case "openDashboard":
       return createTab({ url: chrome.runtime.getURL("dashboard.html") });
+    case "openSnapshotManager":
+      return createTab({ url: chrome.runtime.getURL("snapshots.html") });
     case "activateTab":
       return activateTab(message.tabId, message.windowId);
     case "saveSnapshot":
@@ -76,8 +82,16 @@ async function handleMessage(message) {
       return saveSelectedSnapshot(message.tabIds || []);
     case "listSnapshots":
       return listSnapshots();
+    case "getSnapshot":
+      return getSnapshot(message.id);
     case "deleteSnapshot":
       return deleteSnapshot(message.id);
+    case "deleteSnapshots":
+      return deleteSnapshots(message.ids || []);
+    case "exportSnapshots":
+      return exportSnapshots(message.ids || []);
+    case "importSnapshots":
+      return importSnapshots(message.json);
     case "renameSnapshot":
       return renameSnapshot(message.id, message.label);
     case "restoreSnapshot":
