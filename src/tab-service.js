@@ -4,6 +4,8 @@ import {
   discardTab,
   focusWindow,
   getCurrentWindow,
+  getExtensionUrl,
+  getExtensionVersion,
   getFromStorage,
   moveTabs,
   queryTabs,
@@ -53,7 +55,7 @@ export async function recordTabOpened(tab, openedAt = Date.now()) {
     openedAt,
     estimatedOpenedAt: null,
     ageSource: "recorded",
-    createdByVersion: chrome.runtime.getManifest().version,
+    createdByVersion: getExtensionVersion(),
     updatedAt: Date.now()
   };
   await saveMetadata(metadata);
@@ -131,7 +133,7 @@ export async function estimateMetadataForTab(tab) {
     openedAt: null,
     estimatedOpenedAt,
     ageSource: estimatedOpenedAt ? "estimated" : "unknown",
-    createdByVersion: chrome.runtime.getManifest().version,
+    createdByVersion: getExtensionVersion(),
     updatedAt: now
   };
 }
@@ -144,7 +146,7 @@ export async function getTabGroups({ mode = GROUPING_MODES.BY_AGE } = {}) {
     listWindows().catch(() => [])
   ]);
   const windowStates = new Map(windows.map((win) => [win.id, win]));
-  const extensionOrigin = chrome.runtime.getURL("");
+  const extensionOrigin = getExtensionUrl("");
   const viewModels = tabs.map((tab) => createTabViewModel(tab, metadata[tab.id], currentWindow, extensionOrigin));
 
   const groups = mode === GROUPING_MODES.BY_WINDOW
@@ -244,7 +246,7 @@ export async function moveTabsToWindow(tabIds, targetWindowId) {
     const tab = tabsById.get(tabId);
     if (!tab) throw new SkipTabError("标签不存在");
     // Lazy-tab placeholders are movable — they stand for a real page.
-    if (tab.url?.startsWith(chrome.runtime.getURL("")) && !unwrapLazyTabUrl(tab.url)) {
+    if (tab.url?.startsWith(getExtensionUrl("")) && !unwrapLazyTabUrl(tab.url)) {
       throw new SkipTabError("扩展页面已跳过");
     }
     if (tab.windowId === safeTarget) throw new SkipTabError("已在目标窗口");
@@ -263,7 +265,7 @@ export async function createWindowWithTabs(tabIds) {
 
   const allTabs = await queryTabs({});
   const tabsById = new Map(allTabs.map((tab) => [tab.id, tab]));
-  const extensionOrigin = chrome.runtime.getURL("");
+  const extensionOrigin = getExtensionUrl("");
 
   const validIds = [];
   for (const tabId of safeIds) {
@@ -551,7 +553,7 @@ function buildLazyTabUrl(tab) {
     title: tab.title || "",
     favIconUrl: tab.favIconUrl || ""
   });
-  return `${chrome.runtime.getURL("lazy-tab.html")}?${params.toString()}`;
+  return `${getExtensionUrl("lazy-tab.html")}?${params.toString()}`;
 }
 
 export async function restoreSnapshot(id) {

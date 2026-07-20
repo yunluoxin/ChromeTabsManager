@@ -16,7 +16,7 @@
 // that builder's output (a local placeholder page) so only the active tab of
 // each window actually loads on restore.
 
-const NON_CAPTURABLE_PREFIXES = ["chrome://", "chrome-extension://"];
+import { isSystemUrl } from "./system-urls.js";
 
 export function generateSnapshotId(createdAt) {
   return `snap-${createdAt}`;
@@ -31,7 +31,7 @@ export function formatSnapshotLabel(createdAt) {
 
 function isCapturableUrl(url) {
   if (!url) return false;
-  return !NON_CAPTURABLE_PREFIXES.some((prefix) => url.startsWith(prefix));
+  return !isSystemUrl(url);
 }
 
 // A lazy-tab placeholder carries the original page in its query string

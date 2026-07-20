@@ -4,12 +4,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Chrome History Tab Manager — a Chrome MV3 extension that groups currently open tabs by age (or by Chrome window) and supports bulk close, bookmark, and memory-release (`chrome.tabs.discard`) actions. Two surfaces share a single `chrome.runtime.sendMessage` channel to a background service worker:
+Chrome History Tab Manager — a cross-browser MV3 extension (Chrome + Firefox) that groups currently open tabs by age (or by browser window) and supports bulk close, bookmark, and memory-release (`tabs.discard`) actions. Two surfaces share a single `runtime.sendMessage` channel to a background worker:
 
 - `popup.html` + `src/popup.js` — compact summary and one-click "old tab" actions.
 - `dashboard.html` + `src/dashboard.js` — full management page with search, filters, selection, group actions, drag-and-drop between windows, and a floating "drop into new window" zone.
 
-The extension uses **no build step**. All source is plain ES modules loaded directly by Chrome.
+The extension uses **no build step**. All source is plain ES modules loaded directly by the browser.
+
+## Multi-browser support
+
+- **`src/chrome-api.js` is the only file allowed to touch `chrome`/`browser`.** It exports `api` (= `browser` when present, else `chrome` — detection order matters because Firefox aliases `chrome`). Business code imports wrappers from here; new API needs get a wrapper first.
+- **Capability detection, never UA sniffing**: e.g. `tabs.onReplaced` is Chromium-only, so call sites do `if (api.tabs.onReplaced)`. New Chromium-family browsers then work automatically.
+- **`src/system-urls.js`** — pure `isSystemUrl()` covering `chrome://`, `chrome-extension://`, `about:`, `moz-extension://`, `edge://`, Safari schemes. Bookmark/snapshot filters go through it.
+- **Manifests fork** (hard requirement — Firefox rejects `background.service_worker`, Chrome rejects `background.scripts`):
+  - Root `manifest.json` — Chrome; load the repo root via Load unpacked.
+  - `platforms/firefox/manifest.json` — Firefox (`background.scripts` + fixed `browser_specific_settings.gecko.id`, which keeps `storage.local` data stable across reloads/restarts).
+- **Scripts**: `npm run dev:firefox` assembles `dist/firefox/` (Firefox manifest + symlinks back to source — edit source, just reload in Firefox). `npm run pack:firefox` builds an unsigned `.xpi` for permanent install in Firefox Developer Edition (`xpinstall.signatures.required=false`). Load temporary add-ons from `about:debugging` → `dist/firefox/manifest.json`.
 
 ## Commands
 
@@ -45,7 +55,8 @@ dashboard.html┘                                          │
 
 ### Module layout (`src/`)
 
-- **`chrome-api.js`** — Thin Promise wrappers around every callback-style Chrome API used (`queryTabs`, `removeTabs`, `discardTab`, `updateTab`, `moveTabs`, `queryWindows`, `createWindow`, `focusWindow`, `getCurrentWindow`, `getFromStorage`, `setInStorage`, `searchHistory`, `createBookmark`, `createTab`). Centralizing these keeps the rest of the code Promise-shaped.
+- **`chrome-api.js`** — The only file touching the extension API namespace. Exports `api` (`browser` ?? `chrome`), thin Promise wrappers (`queryTabs`, `removeTabs`, `discardTab`, `updateTab`, `moveTabs`, `queryWindows`, `createWindow`, `focusWindow`, `getCurrentWindow`, `getFromStorage`, `setInStorage`, `searchHistory`, `createBookmark`, `createTab`, `getExtensionUrl`, `getExtensionVersion`), and the sender-side `sendMessage` (handles the `{ok, payload|error}` envelope + `runtime.lastError` on Chromium). UI pages use this `sendMessage`, not `chrome.runtime.sendMessage`.
+- **`system-urls.js`** — Pure `isSystemUrl()` helper (all browser-internal schemes). Used by `bookmark-planner.js` and `tab-snapshot.js`.
 - **`age-grouping.js`** — Pure date math. `GROUPS`, `groupTimestamp(ts, now)`, `groupTabs(tabs, now)`, `isOldGroup(key)`. `OLD_GROUP_KEYS = {last-week, two-weeks-ago, one-month-ago, older}` — used by the popup's quick "old tabs" buttons.
 - **`window-grouping.js`** — Pure grouping by `tab.windowId`. Produces the same `{ key, label, tabs: [{ ..., groupKey, groupLabel }] }` shape as age-grouping, plus a `windowId` field used by the dashboard's drag targets and the "move to window" dropdown. Current window is sorted first; labels are sequential `窗口1`, `窗口2`, … (with `· 当前` suffix).
 - **`bookmark-planner.js`** — Pure planning: `BOOKMARK_MODES.{FLAT,FOLDER,GROUPED}`, `defaultFolderName`, `sanitizeBookmarkTabs` (drops `chrome://` and `chrome-extension://` URLs), `createBookmarkPlan`, `groupBookmarkTabs`. Does not touch the Chrome API.
@@ -112,3 +123,4 @@ When adding new pure helpers (date math, grouping, planning, formatting), add a 
 - New bulk actions should follow the `runPerTab` + `SkipTabError` pattern and return `{ succeeded, skipped, failed, errors }` so they plug into `formatActionSummary` automatically.
 - New grouping strategies should produce `{ key, label, tabs }` with each tab carrying `groupKey` and `groupLabel` to stay compatible with `dashboard.js#renderGroup`.
 - Keep pure modules Chrome-free — anything that imports `./chrome-api.js` is excluded from `npm test`.
+- Never write `if (isFirefox)` — write `if (api.someFeature)`. Never use `chrome.` or `browser.` outside `chrome-api.js` (the `api` export is fine elsewhere).

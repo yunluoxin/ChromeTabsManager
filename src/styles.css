@@ -137,6 +137,15 @@ body {
   color: var(--text);
 }
 
+/* Firefox popup panels are their own viewport: they measure the body's
+ * layout size to size the panel (Chrome measures content first). A
+ * `min-height: 100vh` body is self-referencing there — the panel starts
+ * tiny, so 100vh is tiny, so the body is tiny, and the popup collapses to
+ * a small empty box. In the popup, let content drive the height instead. */
+body.popup-body {
+  min-height: 0;
+}
+
 button,
 input,
 select {

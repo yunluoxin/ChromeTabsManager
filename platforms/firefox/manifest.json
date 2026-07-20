@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Chrome History Tab Manager",
+  "description": "Group open tabs by age, then close, bookmark, or release memory in bulk.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "bookmarks", "history", "storage", "windows"],
+  "action": {
+    "default_title": "Tab Manager",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "scripts": ["src/background.js"],
+    "type": "module"
+  },
+  "options_page": "dashboard.html",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "chrome-history-tab-manager@east.local",
+      "strict_min_version": "128.0"
+    }
+  }
+}

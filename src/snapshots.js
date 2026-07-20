@@ -2,6 +2,7 @@
 // everything heavier than one-click restore (multi-select, export, import,
 // preview) lives on this full page.
 import { formatActionSummary } from "./action-summary.js";
+import { api, sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -45,8 +46,8 @@ async function init() {
   await initTheme();
   bindEvents();
   // Live sync: popup (or another manager tab) mutating snapshots lands in
-  // chrome.storage.local — reload the list so this page never goes stale.
-  chrome.storage.onChanged.addListener((changes, area) => {
+  // storage.local — reload the list so this page never goes stale.
+  api.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.tabSnapshots) loadSnapshots();
   });
   await Promise.all([loadSnapshots(), loadCurrentWindow()]);
@@ -520,18 +521,5 @@ function escapeAttribute(value) {
 }
 
 function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown extension error"));
-        return;
-      }
-      resolve(response.payload);
-    });
-  });
+  return sendExtensionMessage(message);
 }

@@ -14,7 +14,7 @@
 // Cross-page sync: when popup flips the toggle, the dashboard's storage
 // listener reapplies the theme without reloading.
 
-import { getFromStorage, setInStorage } from "./chrome-api.js";
+import { api, getFromStorage, setInStorage } from "./chrome-api.js";
 
 const STORAGE_KEY = "theme";
 
@@ -76,6 +76,6 @@ export function subscribeThemeChange(handler) {
     if (!change) return;
     handler(VALID.has(change.newValue) ? change.newValue : THEMES.SYSTEM);
   };
-  chrome.storage.onChanged.addListener(wrapped);
-  return () => chrome.storage.onChanged.removeListener(wrapped);
+  api.storage.onChanged.addListener(wrapped);
+  return () => api.storage.onChanged.removeListener(wrapped);
 }

@@ -1,4 +1,5 @@
 import { formatActionSummary } from "./action-summary.js";
+import { api, sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { faviconFallback } from "./favicon-fallback.js";
 import { NewWindowDropZone } from "./new-window-drop-zone.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
@@ -134,15 +135,18 @@ function subscribeToTabChanges() {
       Promise.all([loadTabs(), loadWindows()]);
     }, 250);
   };
-  chrome.tabs.onCreated.addListener(scheduleRefresh);
-  chrome.tabs.onRemoved.addListener(scheduleRefresh);
-  chrome.tabs.onUpdated.addListener(scheduleRefresh);
-  chrome.tabs.onMoved.addListener(scheduleRefresh);
-  chrome.tabs.onAttached.addListener(scheduleRefresh);
-  chrome.tabs.onDetached.addListener(scheduleRefresh);
-  chrome.tabs.onReplaced.addListener(scheduleRefresh);
-  chrome.windows.onCreated.addListener(scheduleRefresh);
-  chrome.windows.onRemoved.addListener(scheduleRefresh);
+  api.tabs.onCreated.addListener(scheduleRefresh);
+  api.tabs.onRemoved.addListener(scheduleRefresh);
+  api.tabs.onUpdated.addListener(scheduleRefresh);
+  api.tabs.onMoved.addListener(scheduleRefresh);
+  api.tabs.onAttached.addListener(scheduleRefresh);
+  api.tabs.onDetached.addListener(scheduleRefresh);
+  // Chromium-only event (no Firefox equivalent) — capability-detect.
+  if (api.tabs.onReplaced) {
+    api.tabs.onReplaced.addListener(scheduleRefresh);
+  }
+  api.windows.onCreated.addListener(scheduleRefresh);
+  api.windows.onRemoved.addListener(scheduleRefresh);
 }
 
 // Cmd+K (mac) or Ctrl+K (windows/linux) — focus the search input. We accept
@@ -721,20 +725,7 @@ async function handleDrop(event) {
 }
 
 function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown extension error"));
-        return;
-      }
-      resolve(response.payload);
-    });
-  }).catch((error) => {
+  return sendExtensionMessage(message).catch((error) => {
     showToast(error.message, { type: "error" });
     throw error;
   });

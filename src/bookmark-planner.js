@@ -18,9 +18,11 @@ export function defaultFolderName({ groupLabel, customName, date = new Date(), i
   return `${formatDate(date)} Chrome Tabs`;
 }
 
+import { isSystemUrl } from "./system-urls.js";
+
 export function sanitizeBookmarkTabs(tabs) {
   return tabs
-    .filter((tab) => tab.url && !tab.url.startsWith("chrome://") && !tab.url.startsWith("chrome-extension://"))
+    .filter((tab) => tab.url && !isSystemUrl(tab.url))
     .map((tab) => ({
       title: tab.title || tab.url,
       url: tab.url,

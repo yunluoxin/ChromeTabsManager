@@ -1,4 +1,26 @@
+// Single entry point for every WebExtension API call in this codebase.
+//
+// Two API namespaces exist in the wild:
+//   browser.* — Firefox (and Safari), native Promise, no runtime.lastError
+//   chrome.*  — Chromium family (Chrome/Edge/Brave/Arc/…), callback style
+//               (MV3 methods also return a Promise when no callback is given)
+// Firefox ships a chrome.* alias, but we want the Promise-native browser.*,
+// so detection order matters: browser first.
+//
+// Business code must never touch `chrome`/`browser` directly — new API needs
+// get a wrapper here, which keeps every browser difference confined to this
+// file. Feature differences (e.g. tabs.onReplaced missing on Firefox) are
+// handled by capability detection at the call site, never UA sniffing.
+
+export const api = typeof browser !== "undefined" ? browser : chrome;
+
+// True when running on the Promise-native namespace (Firefox/Safari).
+const IS_PROMISE_NATIVE = typeof browser !== "undefined";
+
 export function callChrome(fn, ...args) {
+  if (IS_PROMISE_NATIVE) {
+    return fn(...args);
+  }
   return new Promise((resolve, reject) => {
     fn(...args, (result) => {
       const error = chrome.runtime.lastError;
@@ -12,66 +34,95 @@ export function callChrome(fn, ...args) {
 }
 
 export function getFromStorage(keys) {
-  return callChrome(chrome.storage.local.get.bind(chrome.storage.local), keys);
+  return callChrome(api.storage.local.get.bind(api.storage.local), keys);
 }
 
 export function setInStorage(value) {
-  return callChrome(chrome.storage.local.set.bind(chrome.storage.local), value);
+  return callChrome(api.storage.local.set.bind(api.storage.local), value);
 }
 
 export function queryTabs(queryInfo = {}) {
-  return callChrome(chrome.tabs.query.bind(chrome.tabs), queryInfo);
+  return callChrome(api.tabs.query.bind(api.tabs), queryInfo);
 }
 
 export function getCurrentWindow() {
-  return callChrome(chrome.windows.getCurrent.bind(chrome.windows), {});
+  return callChrome(api.windows.getCurrent.bind(api.windows), {});
 }
 
 export function removeTabs(tabIds) {
-  return callChrome(chrome.tabs.remove.bind(chrome.tabs), tabIds);
+  return callChrome(api.tabs.remove.bind(api.tabs), tabIds);
 }
 
 export function discardTab(tabId) {
-  return callChrome(chrome.tabs.discard.bind(chrome.tabs), tabId);
+  return callChrome(api.tabs.discard.bind(api.tabs), tabId);
 }
 
 export function updateTab(tabId, updateProperties) {
-  return callChrome(chrome.tabs.update.bind(chrome.tabs), tabId, updateProperties);
+  return callChrome(api.tabs.update.bind(api.tabs), tabId, updateProperties);
 }
 
 export function focusWindow(windowId) {
-  return callChrome(chrome.windows.update.bind(chrome.windows), windowId, { focused: true });
+  return callChrome(api.windows.update.bind(api.windows), windowId, { focused: true });
 }
 
 export function moveTabs(tabIds, moveProperties) {
-  return callChrome(chrome.tabs.move.bind(chrome.tabs), tabIds, moveProperties);
+  return callChrome(api.tabs.move.bind(api.tabs), tabIds, moveProperties);
 }
 
-export function queryWindows(queryInfo = {}) {
+export async function queryWindows(queryInfo = {}) {
+  const result = await callChrome(api.windows.getAll.bind(api.windows), queryInfo);
+  return result || [];
+}
+
+export function createBookmark(bookmark) {
+  return callChrome(api.bookmarks.create.bind(api.bookmarks), bookmark);
+}
+
+export function searchHistory(query) {
+  return callChrome(api.history.search.bind(api.history), query);
+}
+
+export function createTab(createProperties) {
+  return callChrome(api.tabs.create.bind(api.tabs), createProperties);
+}
+
+export function createWindow(createData) {
+  return callChrome(api.windows.create.bind(api.windows), createData);
+}
+
+export function getExtensionUrl(path) {
+  return api.runtime.getURL(path);
+}
+
+export function getExtensionVersion() {
+  return api.runtime.getManifest().version;
+}
+
+// Sender-side message channel shared by popup/dashboard/snapshots. Resolves
+// with the payload on { ok: true }, rejects with the error message otherwise
+// (mirrors background.js's response envelope).
+export function sendMessage(message) {
+  const respond = (response) => {
+    if (!response?.ok) {
+      throw new Error(response?.error || "Unknown extension error");
+    }
+    return response.payload;
+  };
+  if (IS_PROMISE_NATIVE) {
+    return api.runtime.sendMessage(message).then(respond);
+  }
   return new Promise((resolve, reject) => {
-    chrome.windows.getAll(queryInfo, (result) => {
+    chrome.runtime.sendMessage(message, (response) => {
       const error = chrome.runtime.lastError;
       if (error) {
         reject(new Error(error.message));
         return;
       }
-      resolve(result || []);
+      try {
+        resolve(respond(response));
+      } catch (err) {
+        reject(err);
+      }
     });
   });
-}
-
-export function createBookmark(bookmark) {
-  return callChrome(chrome.bookmarks.create.bind(chrome.bookmarks), bookmark);
-}
-
-export function searchHistory(query) {
-  return callChrome(chrome.history.search.bind(chrome.history), query);
-}
-
-export function createTab(createProperties) {
-  return callChrome(chrome.tabs.create.bind(chrome.tabs), createProperties);
-}
-
-export function createWindow(createData) {
-  return callChrome(chrome.windows.create.bind(chrome.windows), createData);
 }

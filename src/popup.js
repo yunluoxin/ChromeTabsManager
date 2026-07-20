@@ -1,4 +1,5 @@
 import { formatActionSummary } from "./action-summary.js";
+import { sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -284,20 +285,7 @@ function escapeAttribute(value) {
 }
 
 function sendMessage(message) {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage(message, (response) => {
-      const error = chrome.runtime.lastError;
-      if (error) {
-        reject(new Error(error.message));
-        return;
-      }
-      if (!response?.ok) {
-        reject(new Error(response?.error || "Unknown extension error"));
-        return;
-      }
-      resolve(response.payload);
-    });
-  }).catch((error) => {
+  return sendExtensionMessage(message).catch((error) => {
     showToast(error.message, { type: "error" });
     throw error;
   });

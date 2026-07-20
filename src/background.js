@@ -23,29 +23,35 @@ import {
   saveSelectedSnapshot,
   saveWindowSnapshot
 } from "./tab-service.js";
-import { createTab } from "./chrome-api.js";
+import { api, createTab, getExtensionUrl } from "./chrome-api.js";
 
-chrome.runtime.onInstalled.addListener(() => {
+api.runtime.onInstalled.addListener(() => {
   reconcileOpenTabs();
 });
 
-chrome.runtime.onStartup.addListener(() => {
+api.runtime.onStartup.addListener(() => {
   reconcileOpenTabs();
 });
 
-chrome.tabs.onCreated.addListener((tab) => {
+api.tabs.onCreated.addListener((tab) => {
   recordTabOpened(tab);
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => {
+api.tabs.onRemoved.addListener((tabId) => {
   removeTabMetadata(tabId);
 });
 
-chrome.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
-  replaceTabMetadata(addedTabId, removedTabId);
-});
+// tabs.onReplaced is Chromium-only (prerender/instant-tab swaps). Firefox has
+// no equivalent event — capability-detect so the listener simply doesn't
+// register there; URL-based reconciliation in reconcileOpenTabs is the
+// fallback that keeps ages correct anyway.
+if (api.tabs.onReplaced) {
+  api.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
+    replaceTabMetadata(addedTabId, removedTabId);
+  });
+}
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+api.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message)
     .then((payload) => sendResponse({ ok: true, payload }))
     .catch((error) => sendResponse({ ok: false, error: error.message }));
@@ -69,9 +75,9 @@ async function handleMessage(message) {
     case "createWindowWithTabs":
       return createWindowWithTabs(message.tabIds || []);
     case "openDashboard":
-      return createTab({ url: chrome.runtime.getURL("dashboard.html") });
+      return createTab({ url: getExtensionUrl("dashboard.html") });
     case "openSnapshotManager":
-      return createTab({ url: chrome.runtime.getURL("snapshots.html") });
+      return createTab({ url: getExtensionUrl("snapshots.html") });
     case "activateTab":
       return activateTab(message.tabId, message.windowId);
     case "saveSnapshot":
