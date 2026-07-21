@@ -17,8 +17,8 @@ The extension uses **no build step**. All source is plain ES modules loaded dire
 - **Capability detection, never UA sniffing**: e.g. `tabs.onReplaced` is Chromium-only, so call sites do `if (api.tabs.onReplaced)`. New Chromium-family browsers then work automatically.
 - **`src/system-urls.js`** — pure `isSystemUrl()` covering `chrome://`, `chrome-extension://`, `about:`, `moz-extension://`, `edge://`, Safari schemes. Bookmark/snapshot filters go through it.
 - **Manifests fork** (hard requirement — Firefox rejects `background.service_worker`, Chrome rejects `background.scripts`):
-  - Root `manifest.json` — Chrome; load the repo root via Load unpacked.
-  - `platforms/firefox/manifest.json` — Firefox (`background.scripts` + fixed `browser_specific_settings.gecko.id`, which keeps `storage.local` data stable across reloads/restarts).
+  - Root `manifest.json` — Chrome; load the repo root via Load unpacked. Declares `"incognito": "split"` so the popup / dashboard / snapshots pages can load into incognito tabs. Without it, Chrome silently blocks `chrome-extension://` navigations to incognito windows and popup buttons appear to do nothing. Firefox treats `split` as `not_allowed`, so we can't share the key.
+  - `platforms/firefox/manifest.json` — Firefox (`background.scripts` + fixed `browser_specific_settings.gecko.id`, which keeps `storage.local` data stable across reloads/restarts). No incognito key — Firefox has no analogous restriction.
 - **Scripts**: `npm run dev:firefox` assembles `dist/firefox/` (Firefox manifest + symlinks back to source — edit source, just reload in Firefox). `npm run pack:firefox` builds an unsigned `.xpi` for permanent install in Firefox Developer Edition (`xpinstall.signatures.required=false`). Load temporary add-ons from `about:debugging` → `dist/firefox/manifest.json`.
 
 ## Commands
@@ -110,6 +110,16 @@ Stored metadata (`chrome.storage.local["tabAgeMetadata"]`):
 - Dropping outside a target but on the floating zone (`NewWindowDropZone`) calls `createWindowWithTabs` instead.
 - Bulk move uses `runMove` (single message `moveTabs`) for group drops and `runSelectedMove` for the dropdown.
 - `moveTabsToWindow` filters out `isExtensionOwned` tabs and the source-window case; failures throw `SkipTabError` so the summary attributes them to "skipped" rather than "failed".
+
+### Chrome quirks to remember
+
+These are real Chrome MV3 behaviors that Firefox doesn't share; if you ever feel like removing the workarounds, re-read this section first.
+
+- **`windows.getCurrent()` from the service worker is unreliable in MV3.** It can return a stale or wrong window — the only safe source for "the window the user is interacting with" is `tabs.query({active: true, lastFocusedWindow: true})` from the UI page itself. That is why `queryLastFocusedActiveTab` exists in `chrome-api.js` and `popup.js`/`snapshots.js` call it on click instead of trusting the `currentWindowId` returned by `getTabGroups`. Firefox gives the same answer either way.
+- **Default spanning incognito mode blocks extension-page loads into incognito tabs.** This is why the manifest declares `"incognito": "split"` and why popup buttons appear to do *nothing* in incognito if you ever remove it. Firefox does not have this restriction.
+- **`tabs.discard` is rate-limited.** Discarding very many tabs at once will reject; the bulk release path already retries in chunks.
+- **`tabs.move` rejects cross incognito / normal boundaries.** `moveTabsToWindow` translates that into `SkipTabError` so the summary shows "skipped" rather than "failed".
+- **`windows.create` rejects `chrome-extension://` URLs in its `urls` list when the target window is incognito.** This is why `restoreSnapshot` passes `omitLazyTabs: (window) => window.incognito === true` to `planRestore` — privacy windows in a snapshot lose the lazy-load memory saving and restore with real URLs for every tab. Without the override, those non-active tabs silently fail to open and Chrome shows the dreaded "Extension location has moved" page. Firefox permits lazy placeholders in incognito, so the predicate is a no-op there.
 
 ## Testing
 

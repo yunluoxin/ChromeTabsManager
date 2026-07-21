@@ -4,6 +4,7 @@
   "description": "Group open tabs by age, then close, bookmark, or release memory in bulk.",
   "version": "0.1.0",
   "permissions": ["tabs", "bookmarks", "history", "storage", "windows"],
+  "incognito": "split",
   "action": {
     "default_title": "Tab Manager",
     "default_popup": "popup.html"

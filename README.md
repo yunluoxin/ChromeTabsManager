@@ -20,6 +20,24 @@ A lightweight cross-browser MV3 extension (Chrome + Firefox) for managing curren
 
 Chrome 直接加载根目录即可，无需任何构建。
 
+### 隐私（无痕）窗口
+
+默认情况下 Chrome 不允许扩展在隐私窗口里运行。要让本扩展在隐私窗口可用，需要两步：
+
+1. `chrome://extensions` → 找到本扩展 → 打开 **在无痕模式下启用**。
+2. **重新加载**扩展（隐私模式相关的清单变更需要刷新才生效）。
+
+`manifest.json` 已经声明了 `"incognito": "split"`：这是 Chrome 让 `chrome-extension://` 页面（popup、管理页、快照管理页）能在**隐私窗口标签**里加载的唯一办法——默认的 spanning 模式下 Chrome 会静默拦截这种导航，于是"点 popup 里的管理页按钮什么反应都没有"。split 模式下隐私窗口拥有独立的扩展实例（`storage.local` 仍然共享，这是 Chrome split 的设计），所有功能照常工作。
+
+Firefox 不加这个 key——Firefox 把 `split` 当作 `not_allowed`，但 Firefox 本身没有"spanning 模式下扩展页无法进入隐私标签"那个限制，所以默认就直接可用。
+
+### 其他 Chrome 特有行为
+
+- **保存当前窗口**的"当前窗口"判定：在 popup 端用 `tabs.query({active:true, lastFocusedWindow:true})` 解析，不读 service worker 返回的 `currentWindowId`。Chrome MV3 的 service worker 里 `windows.getCurrent` 会给出过期或错位的窗口（隐私 / 普通不分）。Firefox 两边一致。
+- **`tabs.discard`（释放标签内存）**：在标签很多时 Chrome 会拒绝一次性释放全部（防止误操作）。代码里的批量释放会自动分批重试。Firefox 没有这个限流。
+- **`tabs.move` 跨隐私 / 普通窗口**：会抛 `SkipTabError`，由 `formatActionSummary` 归到"跳过"。这是 Chrome 的硬限制，不修。
+- **快照恢复在隐私窗口里不懒加载**：默认情况下恢复快照会用本扩展的 `chrome-extension://` 占位页替代每个窗口的非活动标签（只有活动标签真正加载，目的是省内存）。**Chrome 在隐私窗口里会拒绝 `chrome-extension://` 占位 URL 进入 `windows.create` 的 url 列表**——结果就是非活动标签丢失、Chrome 弹出"扩展位置已移动"。`restoreSnapshot` 通过 `planRestore` 的 `omitLazyTabs` 选项检测 `window.incognito`，**隐私窗口强制走真实 URL**，牺牲这部分窗口的内存节省，换"标签不丢、不报错"。Firefox 不受影响，照常懒加载。
+
 ## 在 Firefox 中使用
 
 Firefox 不能直接加载根目录（根目录的 `manifest.json` 是 Chrome 版）。需要先用脚本把扩展**真实拷贝**组装到 `dist/firefox/`，再从该目录加载。
