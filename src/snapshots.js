@@ -126,7 +126,8 @@ async function loadCurrentWindow() {
 
 async function loadSnapshots() {
   try {
-    state.snapshots = await sendMessage({ type: "listSnapshots" });
+    // Manager page shows every snapshot, including pure-incognito ones.
+    state.snapshots = await sendMessage({ type: "listAllSnapshots" });
   } catch (error) {
     state.snapshots = [];
     showToast(error.message, { type: "error" });
@@ -175,11 +176,14 @@ function renderRow(snapshot) {
   const isPreviewing = state.previewId === snapshot.id ? " is-previewing" : "";
   const label = escapeHtml(snapshot.label);
   const createdAtLabel = escapeHtml(formatSnapshotLabel(snapshot.createdAt));
+  const incognitoBadge = snapshot.hasIncognito
+    ? `<span class="snapshot-row__badge" title="包含隐私窗口">🕶 隐身</span>`
+    : "";
   return `
     <div class="snapshot-row snapshot-manager-row${isPreviewing}" data-snapshot-id="${escapeAttribute(snapshot.id)}">
       <input type="checkbox" class="snapshot-row__check" aria-label="选择快照" ${checked}>
       <div class="snapshot-row__meta">
-        <span class="snapshot-row__time">${label}</span>
+        <span class="snapshot-row__time">${label}${incognitoBadge}</span>
         <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}</span>
       </div>
       <div class="snapshot-row__actions">
@@ -453,6 +457,7 @@ function renderPreview() {
 
 function renderPreviewWindow(window, index) {
   const tabs = Array.isArray(window.tabs) ? window.tabs : [];
+  const isIncognito = window.incognito === true;
   const rows = tabs.map((tab, tabIndex) => {
     const isActive = tabIndex === window.activeIndex;
     const favicon = tab.favIconUrl
@@ -460,17 +465,21 @@ function renderPreviewWindow(window, index) {
       : `<span class="preview-tab__icon preview-tab__icon--placeholder" aria-hidden="true"></span>`;
     const pinned = tab.pinned ? `<span class="preview-tab__badge">固定</span>` : "";
     const active = isActive ? `<span class="preview-tab__badge preview-tab__badge--active">活动</span>` : "";
+    const incognito = tab.incognito ? `<span class="preview-tab__badge preview-tab__badge--incognito">🕶 隐身</span>` : "";
+    const tabIncognitoClass = tab.incognito ? " incognito" : "";
     return `
-      <li class="preview-tab">
+      <li class="preview-tab${tabIncognitoClass}">
         ${favicon}
         <span class="preview-tab__title" title="${escapeAttribute(tab.url)}">${escapeHtml(tab.title || tab.url)}</span>
-        ${pinned}${active}
+        ${pinned}${active}${incognito}
       </li>
     `;
   }).join("");
+  const windowIncognitoClass = isIncognito ? " incognito" : "";
+  const windowBadge = isIncognito ? ` <span class="preview-window__badge">🕶 隐身窗口</span>` : "";
   return `
-    <section class="preview-window">
-      <h3>窗口 ${index + 1} <span class="muted">· ${tabs.length} 标签</span></h3>
+    <section class="preview-window${windowIncognitoClass}">
+      <h3>窗口 ${index + 1} <span class="muted">· ${tabs.length} 标签</span>${windowBadge}</h3>
       <ul class="preview-tab-list">${rows}</ul>
     </section>
   `;

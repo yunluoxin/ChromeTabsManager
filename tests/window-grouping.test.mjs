@@ -84,3 +84,32 @@ test("formatWindowLabel accepts isMinimized", () => {
   assert.equal(formatWindowLabel(2, { isMinimized: true }), "窗口2（后台）");
   assert.equal(formatWindowLabel(3, { isCurrent: true, isMinimized: true }), "窗口3 · 当前（后台）");
 });
+
+test("formatWindowLabel appends · 隐身 for incognito windows", () => {
+  assert.equal(formatWindowLabel(1, { isIncognito: true }), "窗口1 · 隐身");
+  assert.equal(
+    formatWindowLabel(2, { isCurrent: true, isIncognito: true, isMinimized: true }),
+    "窗口2 · 当前 · 隐身（后台）"
+  );
+});
+
+test("groupTabsByWindow marks a group incognito when a tab reports it", () => {
+  const tabs = [
+    { tabId: 1, windowId: 11, title: "A", incognito: true },
+    { tabId: 2, windowId: 22, title: "B", incognito: false }
+  ];
+  const groups = groupTabsByWindow(tabs, { currentWindowId: 22 });
+  assert.equal(groups[0].incognito, true);
+  assert.equal(groups[0].label, "窗口1 · 隐身");
+  assert.equal(groups[0].tabs[0].groupLabel, "窗口1 · 隐身");
+  assert.equal(groups[1].incognito, false);
+  assert.equal(groups[1].label, "窗口2 · 当前");
+});
+
+test("groupTabsByWindow reads incognito from windowStates too", () => {
+  const tabs = [{ tabId: 1, windowId: 11, title: "A" }];
+  const windowStates = new Map([[11, { id: 11, incognito: true }]]);
+  const groups = groupTabsByWindow(tabs, { currentWindowId: 11, windowStates });
+  assert.equal(groups[0].incognito, true);
+  assert.equal(groups[0].label, "窗口1 · 当前 · 隐身");
+});

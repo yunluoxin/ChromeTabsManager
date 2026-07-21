@@ -192,10 +192,15 @@ function renderSnapshotRow(snapshot) {
   // defensive escaping in case anything in the chain ever changes.
   const label = escapeHtml(snapshot.label);
   const createdAtLabel = escapeHtml(formatSnapshotLabel(snapshot.createdAt));
+  // Mixed snapshots (both normal + incognito windows) still show here, so flag
+  // the private part; the popup restore only brings the normal windows back.
+  const incognitoBadge = snapshot.hasIncognito
+    ? `<span class="snapshot-row__badge" title="包含隐私窗口，恢复时只还原普通窗口">🕶 隐身</span>`
+    : "";
   return `
     <div class="snapshot-row" data-snapshot-id="${escapeAttribute(snapshot.id)}" title="点击恢复此快照">
       <div class="snapshot-row__meta">
-        <span class="snapshot-row__time">${label}</span>
+        <span class="snapshot-row__time">${label}${incognitoBadge}</span>
         <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}</span>
       </div>
       <div class="snapshot-row__actions">
@@ -250,7 +255,10 @@ async function renameSnapshotById(id) {
 async function restoreSnapshotById(id) {
   showToast("正在恢复…");
   try {
-    const result = await sendMessage({ type: "restoreSnapshot", id });
+    // Popup restore never brings private windows back — the list already
+    // hides pure-incognito snapshots, and mixed snapshots restore only their
+    // normal windows.
+    const result = await sendMessage({ type: "restoreSnapshot", id, excludeIncognito: true });
     showToast(`已恢复：${formatActionSummary(result)}`);
   } catch (error) {
     showToast(error.message, { type: "error" });

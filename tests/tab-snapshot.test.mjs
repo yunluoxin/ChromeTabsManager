@@ -1,12 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildSnapshotExport,
   captureSnapshot,
   formatSnapshotLabel,
   generateSnapshotId,
+  parseSnapshotImport,
   planRestore,
+  snapshotPrivacy,
   unwrapLazyTabUrl
 } from "../src/tab-snapshot.js";
+
+// Local alias so the incognito import test reads clearly next to its data.
+const buildSnapshotExportForTest = buildSnapshotExport;
 
 test("generateSnapshotId embeds the timestamp", () => {
   assert.equal(generateSnapshotId(1720954200000), "snap-1720954200000");
@@ -116,7 +122,8 @@ test("captureSnapshot stores pinned, index and favIconUrl fields faithfully", ()
     title: "A",
     pinned: true,
     index: 7,
-    favIconUrl: "https://a.com/f.ico"
+    favIconUrl: "https://a.com/f.ico",
+    incognito: false
   });
 });
 
@@ -149,7 +156,8 @@ test("captureSnapshot unwraps lazy-tab placeholders back to the real page", () =
     title: "真实标题",
     pinned: false,
     index: 1,
-    favIconUrl: "https://real.com/f.ico"
+    favIconUrl: "https://real.com/f.ico",
+    incognito: false
   });
 });
 
@@ -293,4 +301,107 @@ test("planRestore with lazyUrlFor receives the tab's title and favIconUrl", () =
   planRestore(snap, { lazyUrlFor: (tab) => { seen.push(tab); return "lazy"; } });
   // Only the non-active tab goes through the builder, with all its fields.
   assert.deepEqual(seen, [{ url: "https://b.com", title: "B", favIconUrl: "" }]);
+});
+
+/* ---- incognito ---- */
+
+test("captureSnapshot records tab and window incognito from the windows list", () => {
+  const tabs = [
+    { windowId: 11, index: 0, url: "https://a.com", active: true, incognito: true },
+    { windowId: 22, index: 0, url: "https://c.com", active: true, incognito: false }
+  ];
+  const snap = captureSnapshot(tabs, [{ id: 11, incognito: true }, { id: 22, incognito: false }], 1000);
+  assert.equal(snap.windows[0].incognito, true);
+  assert.equal(snap.windows[0].tabs[0].incognito, true);
+  assert.equal(snap.windows[1].incognito, false);
+  assert.equal(snap.windows[1].tabs[0].incognito, false);
+});
+
+test("captureSnapshot infers window incognito from tabs when the windows list omits it", () => {
+  const tabs = [
+    { windowId: 11, index: 0, url: "https://a.com", active: true, incognito: true }
+  ];
+  // Stub window with no incognito field (saveWindowSnapshot passes [{ id }]).
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.windows[0].incognito, true);
+});
+
+test("captureSnapshot treats missing incognito as normal (old-tab compatibility)", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.windows[0].incognito, false);
+  assert.equal(snap.windows[0].tabs[0].incognito, false);
+});
+
+test("planRestore carries window incognito into the plan", () => {
+  const snap = {
+    windows: [
+      { tabs: [{ url: "https://a.com" }], activeIndex: 0, incognito: true },
+      { tabs: [{ url: "https://b.com" }], activeIndex: 0, incognito: false }
+    ]
+  };
+  const plan = planRestore(snap);
+  assert.equal(plan.windows[0].incognito, true);
+  assert.equal(plan.windows[1].incognito, false);
+});
+
+test("planRestore with excludeIncognito drops private windows only", () => {
+  const snap = {
+    windows: [
+      { tabs: [{ url: "https://priv.com" }], activeIndex: 0, incognito: true },
+      { tabs: [{ url: "https://norm.com" }], activeIndex: 0, incognito: false }
+    ]
+  };
+  const plan = planRestore(snap, { excludeIncognito: true });
+  assert.equal(plan.windows.length, 1);
+  assert.deepEqual(plan.windows[0].urls, ["https://norm.com"]);
+});
+
+test("planRestore with excludeIncognito yields an empty plan for a pure-incognito snapshot", () => {
+  const snap = { windows: [{ tabs: [{ url: "https://p.com" }], activeIndex: 0, incognito: true }] };
+  assert.deepEqual(planRestore(snap, { excludeIncognito: true }), { windows: [] });
+});
+
+test("planRestore with excludeIncognito keeps old (field-less) windows as normal", () => {
+  const snap = { windows: [{ tabs: [{ url: "https://old.com" }], activeIndex: 0 }] };
+  const plan = planRestore(snap, { excludeIncognito: true });
+  assert.equal(plan.windows.length, 1);
+  assert.equal(plan.windows[0].incognito, false);
+});
+
+test("snapshotPrivacy classifies normal, mixed, and pure-incognito snapshots", () => {
+  const mixed = { windows: [{ incognito: true }, { incognito: false }] };
+  assert.deepEqual(snapshotPrivacy(mixed), {
+    hasIncognito: true, hasNormal: true, incognitoWindowCount: 1, normalWindowCount: 1
+  });
+
+  const pure = { windows: [{ incognito: true }, { incognito: true }] };
+  const p = snapshotPrivacy(pure);
+  assert.equal(p.hasIncognito, true);
+  assert.equal(p.hasNormal, false);
+
+  // Old snapshot: no incognito field → all normal.
+  const old = { windows: [{}, {}] };
+  const o = snapshotPrivacy(old);
+  assert.equal(o.hasIncognito, false);
+  assert.equal(o.hasNormal, true);
+
+  assert.deepEqual(snapshotPrivacy(null), {
+    hasIncognito: false, hasNormal: false, incognitoWindowCount: 0, normalWindowCount: 0
+  });
+});
+
+test("parseSnapshotImport preserves tab and window incognito", () => {
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-x",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      { activeIndex: 0, incognito: true, tabs: [{ url: "https://p.com", title: "P", incognito: true }] }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  const w = result.snapshots[0].windows[0];
+  assert.equal(w.incognito, true);
+  assert.equal(w.tabs[0].incognito, true);
 });

@@ -24,6 +24,7 @@ import {
   parseSnapshotImport,
   planRestore,
   snapshotExportFileName,
+  snapshotPrivacy,
   unwrapLazyTabUrl
 } from "./tab-snapshot.js";
 
@@ -190,6 +191,7 @@ export function createTabViewModel(tab, metadata, currentWindow, extensionOrigin
     pinned: Boolean(tab.pinned),
     discarded: Boolean(tab.discarded),
     audible: Boolean(tab.audible),
+    incognito: Boolean(tab.incognito),
     currentWindow: currentWindow ? tab.windowId === currentWindow.id : false,
     isExtensionOwned,
     ageTimestamp,
@@ -241,6 +243,12 @@ export async function moveTabsToWindow(tabIds, targetWindowId) {
 
   const allTabs = await queryTabs({});
   const tabsById = new Map(allTabs.map((tab) => [tab.id, tab]));
+  // Chrome/Firefox refuse to move a tab between a normal and a private window;
+  // the underlying tabs.move rejects. Look up the target window's privacy so we
+  // can skip incompatible tabs with a clear reason instead of letting the move
+  // fail opaquely (which used to surface as a false "success").
+  const windows = await queryWindows({}).catch(() => []);
+  const targetWindow = windows.find((win) => win.id === safeTarget);
 
   return runPerTab(safeIds, async (tabId) => {
     const tab = tabsById.get(tabId);
@@ -250,6 +258,9 @@ export async function moveTabsToWindow(tabIds, targetWindowId) {
       throw new SkipTabError("扩展页面已跳过");
     }
     if (tab.windowId === safeTarget) throw new SkipTabError("已在目标窗口");
+    if (targetWindow && Boolean(tab.incognito) !== Boolean(targetWindow.incognito)) {
+      throw new SkipTabError("隐私与普通窗口无法互移");
+    }
     await moveTabs([tabId], { windowId: safeTarget, index: -1 });
   });
 }
@@ -268,6 +279,7 @@ export async function createWindowWithTabs(tabIds) {
   const extensionOrigin = getExtensionUrl("");
 
   const validIds = [];
+  let seedIncognito = null;
   for (const tabId of safeIds) {
     const tab = tabsById.get(tabId);
     if (!tab) {
@@ -278,6 +290,16 @@ export async function createWindowWithTabs(tabIds) {
     if (tab.url?.startsWith(extensionOrigin) && !unwrapLazyTabUrl(tab.url)) {
       summary.failed += 1;
       summary.errors.push(`#${tabId}: 扩展页面已跳过`);
+      continue;
+    }
+    // The new window inherits the first valid tab's privacy; a tab from the
+    // other kind of window can't be moved in (Chrome/Firefox reject it), so
+    // fail it up front rather than letting the later moveTabs fail silently.
+    if (seedIncognito === null) {
+      seedIncognito = Boolean(tab.incognito);
+    } else if (Boolean(tab.incognito) !== seedIncognito) {
+      summary.failed += 1;
+      summary.errors.push(`#${tabId}: 隐私与普通窗口无法互移`);
       continue;
     }
     validIds.push(tabId);
@@ -393,12 +415,15 @@ async function writeSnapshots(snapshots) {
 }
 
 function summarizeSnapshot(snapshot) {
+  const privacy = snapshotPrivacy(snapshot);
   return {
     id: snapshot.id,
     createdAt: snapshot.createdAt,
     label: snapshot.label,
     windowCount: snapshot.windowCount,
-    tabCount: snapshot.tabCount
+    tabCount: snapshot.tabCount,
+    hasIncognito: privacy.hasIncognito,
+    hasNormal: privacy.hasNormal
   };
 }
 
@@ -485,7 +510,23 @@ export async function saveSelectedSnapshot(tabIds) {
   return summarizeSnapshot(snapshot);
 }
 
+// Popup list: hides pure-incognito snapshots (every window is private). Mixed
+// snapshots stay — the popup restore path only brings their normal windows
+// back. The manager page uses listSnapshotDetails, which never filters.
+// Popup list: hides pure-incognito snapshots (every window is private). Mixed
+// snapshots stay — the popup restore path only brings their normal windows
+// back. The manager page uses listAllSnapshots, which never filters.
 export async function listSnapshots() {
+  const snapshots = await readSnapshots();
+  return snapshots
+    .map(summarizeSnapshot)
+    .filter((summary) => summary.hasNormal);
+}
+
+// Manager-page list: every snapshot, unfiltered, but still summary-only rows
+// (privacy flags included). Full window/tab data comes from getSnapshot on
+// preview.
+export async function listAllSnapshots() {
   const snapshots = await readSnapshots();
   return snapshots.map(summarizeSnapshot);
 }
@@ -556,7 +597,7 @@ function buildLazyTabUrl(tab) {
   return `${getExtensionUrl("lazy-tab.html")}?${params.toString()}`;
 }
 
-export async function restoreSnapshot(id) {
+export async function restoreSnapshot(id, { excludeIncognito = false } = {}) {
   const summary = createSummary();
   const snapshot = await getSnapshot(id);
   if (!snapshot) {
@@ -566,8 +607,9 @@ export async function restoreSnapshot(id) {
   }
   // Only each window's active tab loads for real; the rest come back as
   // near-free placeholder tabs. Restoring exists to free memory, so this is
-  // the whole point.
-  const plan = planRestore(snapshot, { lazyUrlFor: buildLazyTabUrl });
+  // the whole point. When excludeIncognito is set (popup path), private
+  // windows are dropped from the plan entirely.
+  const plan = planRestore(snapshot, { lazyUrlFor: buildLazyTabUrl, excludeIncognito });
   for (const window of plan.windows) {
     if (!window.urls || window.urls.length === 0) {
       summary.failed += 1;
@@ -576,12 +618,19 @@ export async function restoreSnapshot(id) {
     }
     try {
       // activeIndex is already at urls[0], so Chrome activates the right tab
-      // without a follow-up tabs.update call.
-      await createWindow({ url: window.urls });
+      // without a follow-up tabs.update call. Private windows need
+      // incognito:true — this throws if the user hasn't granted incognito
+      // access, which we surface as a failure below.
+      const createData = { url: window.urls };
+      if (window.incognito) createData.incognito = true;
+      await createWindow(createData);
       summary.succeeded += 1;
     } catch (error) {
       summary.failed += 1;
-      summary.errors.push(error.message);
+      const detail = window.incognito
+        ? `隐私窗口恢复失败，请在扩展设置中允许隐私模式：${error.message}`
+        : error.message;
+      summary.errors.push(detail);
     }
   }
   return summary;

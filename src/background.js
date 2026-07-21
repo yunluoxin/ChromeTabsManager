@@ -10,6 +10,7 @@ import {
   getSnapshot,
   getTabGroups,
   importSnapshots,
+  listAllSnapshots,
   listSnapshots,
   listWindows,
   moveTabsToWindow,
@@ -88,6 +89,8 @@ async function handleMessage(message) {
       return saveSelectedSnapshot(message.tabIds || []);
     case "listSnapshots":
       return listSnapshots();
+    case "listAllSnapshots":
+      return listAllSnapshots();
     case "getSnapshot":
       return getSnapshot(message.id);
     case "deleteSnapshot":
@@ -101,7 +104,7 @@ async function handleMessage(message) {
     case "renameSnapshot":
       return renameSnapshot(message.id, message.label);
     case "restoreSnapshot":
-      return restoreSnapshot(message.id);
+      return restoreSnapshot(message.id, { excludeIncognito: Boolean(message.excludeIncognito) });
     default:
       throw new Error(`Unknown message type: ${message?.type}`);
   }

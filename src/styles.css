@@ -19,6 +19,9 @@
   --danger-dark: #8f251b;
   --danger-soft: rgba(196, 56, 40, 0.08);
   --danger-soft-strong: rgba(196, 56, 40, 0.25);
+  --incognito: #6b3fa0;
+  --incognito-soft: rgba(107, 63, 160, 0.1);
+  --incognito-soft-hover: rgba(107, 63, 160, 0.16);
   --button-bg: #ebe5da;
   --badge-bg: #eee7dc;
   --input-bg: #ffffff;
@@ -53,6 +56,9 @@ body[data-theme="dark"] {
   --danger-dark: #ef8678;
   --danger-soft: rgba(227, 98, 85, 0.12);
   --danger-soft-strong: rgba(227, 98, 85, 0.3);
+  --incognito: #b79aff;
+  --incognito-soft: rgba(183, 154, 255, 0.14);
+  --incognito-soft-hover: rgba(183, 154, 255, 0.22);
   --button-bg: #2c2a21;
   --badge-bg: #2c2a21;
   --input-bg: #1a1914;
@@ -92,6 +98,9 @@ html[data-theme-bootstrap="dark"] :root {
   --danger-dark: #ef8678;
   --danger-soft: rgba(227, 98, 85, 0.12);
   --danger-soft-strong: rgba(227, 98, 85, 0.3);
+  --incognito: #b79aff;
+  --incognito-soft: rgba(183, 154, 255, 0.14);
+  --incognito-soft-hover: rgba(183, 154, 255, 0.22);
   --button-bg: #2c2a21;
   --badge-bg: #2c2a21;
   --input-bg: #1a1914;
@@ -683,6 +692,27 @@ small {
   font-size: 0.75rem;
 }
 
+.badge--incognito {
+  background: var(--incognito-soft);
+  color: var(--incognito);
+}
+
+/* Private (incognito) windows/tabs get a violet wash so they're obvious at a
+ * glance in both grouping modes; the whole group is tinted when the window is
+ * private, individual rows when a tab is. */
+.tab-row.incognito {
+  background: var(--incognito-soft);
+}
+
+.tab-row.incognito:hover,
+.tab-row.incognito:has(input[type="checkbox"]:checked) {
+  background: var(--incognito-soft-hover);
+}
+
+.tab-group.incognito {
+  box-shadow: inset 3px 0 0 var(--incognito);
+}
+
 .row-actions {
   /* Hover overlay: sits on top of the trailing portion of the title area.
    * Offset `right` enough that even when 3 badges (source + 固定 + 已释放)
@@ -1178,6 +1208,39 @@ body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
 .preview-tab__badge--active {
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.preview-tab__badge--incognito {
+  background: var(--incognito-soft);
+  color: var(--incognito);
+}
+
+.preview-tab.incognito {
+  background: var(--incognito-soft);
+}
+
+.preview-window.incognito {
+  box-shadow: inset 3px 0 0 var(--incognito);
+  padding-left: 0.5rem;
+}
+
+.preview-window__badge {
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--incognito-soft);
+  color: var(--incognito);
+  font-size: 0.68rem;
+}
+
+/* Incognito marker on snapshot rows (popup + manager). */
+.snapshot-row__badge {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--incognito-soft);
+  color: var(--incognito);
+  font-size: 0.68rem;
+  white-space: nowrap;
 }
 
 button:disabled {

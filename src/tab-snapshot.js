@@ -6,8 +6,14 @@
 //
 //   {
 //     id, createdAt, label, windowCount, tabCount,
-//     windows: [{ tabs: [{ url, title, pinned, index, favIconUrl }], activeIndex }]
+//     windows: [{ tabs: [{ url, title, pinned, index, favIconUrl, incognito }],
+//                 activeIndex, incognito }]
 //   }
+//
+// `incognito` (on both windows and tabs) lets restore rebuild private windows
+// with windows.create({ incognito: true }). Snapshots saved before this field
+// existed simply lack it — every read below treats a missing value as false
+// (a normal window), so old snapshots restore exactly as they did before.
 //
 // Restore planning turns a snapshot into a per-window `urls` list where the
 // originally-active URL sits first, so `chrome.windows.create({ url: [...] })`
@@ -57,7 +63,8 @@ function pickTab(tab) {
       title: params.get("title") || unwrappedUrl,
       pinned: Boolean(tab.pinned),
       index: typeof tab.index === "number" ? tab.index : 0,
-      favIconUrl: params.get("favIconUrl") || ""
+      favIconUrl: params.get("favIconUrl") || "",
+      incognito: Boolean(tab.incognito)
     };
   }
   return {
@@ -65,7 +72,8 @@ function pickTab(tab) {
     title: tab.title || tab.url || "",
     pinned: Boolean(tab.pinned),
     index: typeof tab.index === "number" ? tab.index : 0,
-    favIconUrl: tab.favIconUrl || ""
+    favIconUrl: tab.favIconUrl || "",
+    incognito: Boolean(tab.incognito)
   };
 }
 
@@ -75,6 +83,18 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
   const knownWindowIds = windows && windows.length > 0
     ? new Set(windows.map((win) => win.id))
     : new Set(tabs.map((tab) => tab.windowId).filter((id) => id != null));
+
+  // Window-level incognito, keyed by windowId. Prefer the windows list's own
+  // flag when supplied; captureSnapshot's callers may pass stub windows with no
+  // incognito field, in which case we fall back to the tabs below.
+  const incognitoByWindow = new Map();
+  if (windows && windows.length > 0) {
+    for (const win of windows) {
+      if (win && win.id != null && typeof win.incognito === "boolean") {
+        incognitoByWindow.set(win.id, win.incognito);
+      }
+    }
+  }
 
   // Bucket capturable tabs by windowId, then sort each bucket by tab.index.
   const byWindow = new Map();
@@ -101,9 +121,15 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
       .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
 
     const activeIndex = ordered.findIndex((tab) => tab.active);
+    // Window incognito: trust the windows list if it told us, otherwise infer
+    // from the tabs (a window's tabs all share its incognito state).
+    const incognito = incognitoByWindow.has(wid)
+      ? incognitoByWindow.get(wid)
+      : ordered.some((tab) => tab.incognito);
     capturedWindows.push({
       tabs: ordered.map(pickTab),
-      activeIndex: activeIndex >= 0 ? activeIndex : 0
+      activeIndex: activeIndex >= 0 ? activeIndex : 0,
+      incognito: Boolean(incognito)
     });
     tabCount += ordered.length;
   }
@@ -118,25 +144,47 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
   };
 }
 
-export function planRestore(snapshot, { lazyUrlFor } = {}) {
+export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false } = {}) {
   const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : [];
   return {
-    windows: windows.map((window) => {
-      const tabs = Array.isArray(window.tabs) ? window.tabs : [];
-      const idx = Math.max(0, Math.min(window.activeIndex ?? 0, tabs.length - 1));
-      const ordered = tabs.slice();
-      if (idx > 0) {
-        const [active] = ordered.splice(idx, 1);
-        ordered.unshift(active);
-      }
-      // Position 0 is the tab Chrome will activate: always restore it for real.
-      // Everything else may be swapped for a cheap placeholder that only loads
-      // the real page when the user clicks the tab.
-      const urls = ordered.map((tab, position) =>
-        position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
-      );
-      return { urls };
-    })
+    windows: windows
+      // Old snapshots have no `incognito` field → treated as normal (kept).
+      .filter((window) => !(excludeIncognito && window.incognito === true))
+      .map((window) => {
+        const tabs = Array.isArray(window.tabs) ? window.tabs : [];
+        const idx = Math.max(0, Math.min(window.activeIndex ?? 0, tabs.length - 1));
+        const ordered = tabs.slice();
+        if (idx > 0) {
+          const [active] = ordered.splice(idx, 1);
+          ordered.unshift(active);
+        }
+        // Position 0 is the tab Chrome will activate: always restore it for
+        // real. Everything else may be swapped for a cheap placeholder that
+        // only loads the real page when the user clicks the tab.
+        const urls = ordered.map((tab, position) =>
+          position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
+        );
+        return { urls, incognito: Boolean(window.incognito) };
+      })
+  };
+}
+
+// Pure privacy summary of a snapshot. Old snapshots (windows without an
+// `incognito` field) count entirely as normal, so mixed/normal/pure-incognito
+// can be distinguished without mutating the stored shape.
+export function snapshotPrivacy(snapshot) {
+  const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : [];
+  let incognitoWindowCount = 0;
+  let normalWindowCount = 0;
+  for (const window of windows) {
+    if (window && window.incognito === true) incognitoWindowCount += 1;
+    else normalWindowCount += 1;
+  }
+  return {
+    hasIncognito: incognitoWindowCount > 0,
+    hasNormal: normalWindowCount > 0,
+    incognitoWindowCount,
+    normalWindowCount
   };
 }
 
@@ -192,7 +240,8 @@ function sanitizeImportTab(tab) {
     title: typeof tab.title === "string" ? tab.title : url,
     pinned: Boolean(tab.pinned),
     index: Number.isFinite(tab.index) ? tab.index : 0,
-    favIconUrl: typeof tab.favIconUrl === "string" ? tab.favIconUrl : ""
+    favIconUrl: typeof tab.favIconUrl === "string" ? tab.favIconUrl : "",
+    incognito: Boolean(tab.incognito)
   };
 }
 
@@ -229,7 +278,12 @@ export function parseSnapshotImport(json, { existingIds = new Set(), createdAt =
       const activeIndex = Number.isFinite(rawWindow?.activeIndex)
         ? Math.max(0, Math.min(rawWindow.activeIndex, tabs.length - 1))
         : 0;
-      windows.push({ tabs, activeIndex });
+      // Window incognito: trust the stored flag, else infer from the tabs so
+      // an older export without window-level flags still round-trips.
+      const incognito = typeof rawWindow?.incognito === "boolean"
+        ? rawWindow.incognito
+        : tabs.some((tab) => tab.incognito);
+      windows.push({ tabs, activeIndex, incognito: Boolean(incognito) });
       tabCount += tabs.length;
     }
     if (windows.length === 0) { skipped += 1; continue; }

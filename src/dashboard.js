@@ -254,6 +254,8 @@ function collectWindowCandidates() {
   // windowStates doubles as a lookup for which windows are minimized —
   // the dashboard reuses it to append "（后台）" to the filter dropdown.
   const windowStates = new Map();
+  // Track which windows are private so the dropdown/filter labels can show it.
+  const incognitoWindowIds = new Set();
 
   // Collect unique window IDs from both sources. In time mode, age groups
   // carry no windowId, so only state.windows contributes — that's fine,
@@ -261,10 +263,12 @@ function collectWindowCandidates() {
   for (const windowGroup of state.groups) {
     if (windowGroup.windowId == null) continue;
     windowIds.add(windowGroup.windowId);
+    if (windowGroup.incognito) incognitoWindowIds.add(windowGroup.windowId);
   }
   for (const win of state.windows) {
     windowIds.add(win.id);
     if (win.state) windowStates.set(win.id, win);
+    if (win.incognito) incognitoWindowIds.add(win.id);
   }
 
   // Sort purely by windowId ascending. We deliberately do NOT push the
@@ -283,17 +287,19 @@ function collectWindowCandidates() {
     windowId,
     label: formatWindowLabel(idx + 1, {
       isCurrent: windowId === current,
-      isMinimized: windowStates.get(windowId)?.state === "minimized"
+      isMinimized: windowStates.get(windowId)?.state === "minimized",
+      isIncognito: incognitoWindowIds.has(windowId)
     })
   }));
   return { current, candidates };
 }
 
-function formatWindowLabel(index, { isCurrent = false, isMinimized = false } = {}) {
+function formatWindowLabel(index, { isCurrent = false, isMinimized = false, isIncognito = false } = {}) {
   if (index == null) return "未知窗口";
   const currentTag = isCurrent ? " · 当前" : "";
+  const incognitoTag = isIncognito ? " · 隐身" : "";
   const minimizedTag = isMinimized ? "（后台）" : "";
-  return `窗口${index}${currentTag}${minimizedTag}`;
+  return `窗口${index}${currentTag}${incognitoTag}${minimizedTag}`;
 }
 
 function render() {
@@ -313,6 +319,7 @@ function render() {
 function renderGroup(group) {
   const draggableAttrs = state.mode === GROUPING_MODES.BY_WINDOW ? `data-window-id="${group.windowId}"` : "";
   const dragHint = state.mode === GROUPING_MODES.BY_WINDOW ? `title="拖到其它窗口即可移动"` : "";
+  const incognitoClass = group.incognito ? " incognito" : "";
   // 「保存本组」只在窗口模式下出现：按时间分组的组没有 windowId，复用 popup
   // 的"保存所有标签"语义也无意义，所以只暴露在 BY_WINDOW 视图里。
   const saveWindowButton = state.mode === GROUPING_MODES.BY_WINDOW
@@ -326,7 +333,7 @@ function renderGroup(group) {
     ? `<input type="checkbox" class="group-select" title="选择本组" aria-label="选择本组" data-group-select="${group.key}" ${groupChecked ? "checked" : ""}>`
     : "";
   return `
-    <article class="tab-group" ${draggableAttrs} ${dragHint}>
+    <article class="tab-group${incognitoClass}" ${draggableAttrs} ${dragHint}>
       <header class="group-header">
         <div class="group-title">
           ${groupCheckbox}
@@ -357,8 +364,9 @@ function renderTab(tab) {
     ? `<img src="${escapeAttribute(tab.favIconUrl)}" alt="">`
     : renderFaviconFallback(tab.url);
   const draggable = state.mode === GROUPING_MODES.BY_WINDOW && !tab.isExtensionOwned ? `draggable="true"` : "";
+  const incognitoClass = tab.incognito ? " incognito" : "";
   return `
-    <div class="tab-row ${tab.isExtensionOwned ? "protected" : ""}" data-tab-id="${tab.tabId}" ${draggable}>
+    <div class="tab-row ${tab.isExtensionOwned ? "protected" : ""}${incognitoClass}" data-tab-id="${tab.tabId}" ${draggable}>
       <input type="checkbox" data-tab-id="${tab.tabId}" ${checked} ${disabled}>
       ${icon}
       <span class="tab-main">
@@ -366,6 +374,7 @@ function renderTab(tab) {
         <small>${escapeHtml(tab.url)}</small>
       </span>
       <span class="badge">${sourceLabel}</span>
+      ${tab.incognito ? `<span class="badge badge--incognito">🕶 隐身</span>` : ""}
       ${tab.pinned ? `<span class="badge">固定</span>` : ""}
       ${tab.discarded ? `<span class="badge">已释放</span>` : ""}
       <span class="row-actions" aria-label="单个标签操作">
@@ -620,7 +629,11 @@ async function runMove(tabIds, targetWindowId) {
   showToast("执行中…");
   const result = await sendMessage({ type: "moveTabs", tabIds, targetWindowId });
   await Promise.all([loadTabs(), loadWindows()]);
-  showToast(`移动完成：${formatActionSummary(result)}`);
+  // A move can partially or fully fail (e.g. private ↔ normal windows can't
+  // interchange tabs). Surface that as an error toast instead of pretending
+  // everything moved.
+  const hadTrouble = (result?.failed || 0) > 0 || (result?.skipped || 0) > 0;
+  showToast(`移动完成：${formatActionSummary(result)}`, hadTrouble ? { type: "error" } : undefined);
 }
 
 async function runCreateWindowWithTabs(tabIds) {

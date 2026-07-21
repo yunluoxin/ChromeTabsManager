@@ -8,11 +8,12 @@
 // In addition, every group carries a `windowId` so the dashboard can
 // wire drag-and-drop targets and the "move selected" dropdown.
 
-export function formatWindowLabel(index, { isCurrent = false, isMinimized = false } = {}) {
+export function formatWindowLabel(index, { isCurrent = false, isMinimized = false, isIncognito = false } = {}) {
   if (index == null) return "未知窗口";
   const currentTag = isCurrent ? " · 当前" : "";
+  const incognitoTag = isIncognito ? " · 隐身" : "";
   const minimizedTag = isMinimized ? "（后台）" : "";
-  return `窗口${index}${currentTag}${minimizedTag}`;
+  return `窗口${index}${currentTag}${incognitoTag}${minimizedTag}`;
 }
 
 export function groupTabsByWindow(tabs, { currentWindowId = null, windowStates = null } = {}) {
@@ -25,10 +26,14 @@ export function groupTabsByWindow(tabs, { currentWindowId = null, windowStates =
         key: String(windowId),
         windowId,
         label: "未知窗口",
+        incognito: false,
         tabs: []
       });
     }
-    byWindowId.get(windowId).tabs.push({
+    const group = byWindowId.get(windowId);
+    // A window's tabs all share its privacy; latch true if any tab reports it.
+    if (tab.incognito) group.incognito = true;
+    group.tabs.push({
       ...tab,
       groupKey: String(windowId),
       groupLabel: "未知窗口"
@@ -55,7 +60,12 @@ export function groupTabsByWindow(tabs, { currentWindowId = null, windowStates =
     const number = idx + 1;
     const isCurrent = group.windowId === currentWindowId;
     const isMinimized = isWindowMinimized(group.windowId, windowStates);
-    const label = formatWindowLabel(number, { isCurrent, isMinimized });
+    // windowStates may carry the live incognito flag; fall back to the tab-
+    // derived value latched above.
+    const windowState = windowStates?.get?.(group.windowId);
+    const isIncognito = group.incognito || windowState?.incognito === true;
+    group.incognito = Boolean(isIncognito);
+    const label = formatWindowLabel(number, { isCurrent, isMinimized, isIncognito });
     group.label = label;
     for (const tab of group.tabs) tab.groupLabel = label;
   });
