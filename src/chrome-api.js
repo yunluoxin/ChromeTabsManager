@@ -45,6 +45,18 @@ export function queryTabs(queryInfo = {}) {
   return callChrome(api.tabs.query.bind(api.tabs), queryInfo);
 }
 
+// Returns the active tab of the most recently focused NORMAL window, or null
+// if there is none. Used by UI pages (popup / snapshots manager) to resolve
+// "the window the user is interacting with" — chrome.windows.getCurrent lies
+// when called from the service worker, especially on Chrome MV3.
+export async function queryLastFocusedActiveTab() {
+  const tabs = await callChrome(
+    api.tabs.query.bind(api.tabs),
+    { active: true, lastFocusedWindow: true }
+  );
+  return tabs && tabs.length > 0 ? tabs[0] : null;
+}
+
 export function getCurrentWindow() {
   return callChrome(api.windows.getCurrent.bind(api.windows), {});
 }

@@ -1,5 +1,5 @@
 import { formatActionSummary } from "./action-summary.js";
-import { sendMessage as sendExtensionMessage } from "./chrome-api.js";
+import { queryLastFocusedActiveTab, sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -150,13 +150,19 @@ async function saveAllTabs() {
 }
 
 async function saveCurrentWindowTabs() {
-  if (state.currentWindowId == null) {
+  // Resolve the host window here, on click, instead of trusting the
+  // currentWindowId from getTabGroups — Chrome MV3's service worker
+  // returns a stale/wrong value for windows.getCurrent, so the only safe
+  // source is the UI page's own tabs.query. Firefox returns the same value
+  // either way, so this is a no-op there.
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
     showToast("无法确定当前窗口。", { type: "error" });
     return;
   }
   setButtonState(elements.saveCurrentWindow, "loading");
   try {
-    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: state.currentWindowId });
+    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: tab.windowId });
     showToast(`已保存：${meta.label} · ${meta.tabCount} 标签`);
     await loadAndRenderSnapshots();
     setButtonState(elements.saveCurrentWindow, "success");

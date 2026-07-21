@@ -607,9 +607,16 @@ export async function restoreSnapshot(id, { excludeIncognito = false } = {}) {
   }
   // Only each window's active tab loads for real; the rest come back as
   // near-free placeholder tabs. Restoring exists to free memory, so this is
-  // the whole point. When excludeIncognito is set (popup path), private
-  // windows are dropped from the plan entirely.
-  const plan = planRestore(snapshot, { lazyUrlFor: buildLazyTabUrl, excludeIncognito });
+  // the whole point — EXCEPT in incognito windows, where Chrome rejects
+  // `chrome-extension://` URLs in windows.create's url list. Force real URLs
+  // there so every tab actually opens.
+  // When excludeIncognito is set (popup path), private windows are dropped
+  // from the plan entirely.
+  const plan = planRestore(snapshot, {
+    lazyUrlFor: buildLazyTabUrl,
+    excludeIncognito,
+    omitLazyTabs: (window) => window.incognito === true
+  });
   for (const window of plan.windows) {
     if (!window.urls || window.urls.length === 0) {
       summary.failed += 1;

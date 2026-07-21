@@ -21,6 +21,14 @@
 // When a `lazyUrlFor` builder is supplied, every non-active URL is replaced by
 // that builder's output (a local placeholder page) so only the active tab of
 // each window actually loads on restore.
+//
+// `omitLazyTabs` — boolean OR a (window) => boolean predicate — lets callers
+// disable lazy placeholders per window. Chrome rejects `chrome-extension://`
+// URLs in `windows.create`'s url list when the target window is incognito, so
+// the restore path passes `(window) => window.incognito === true` to keep the
+// lazy memory-saving benefit for normal windows while making incognito windows
+// safe to restore on Chrome. The pure module stays incognito-unaware: callers
+// decide which windows must skip lazy URLs.
 
 import { isSystemUrl } from "./system-urls.js";
 
@@ -144,7 +152,7 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
   };
 }
 
-export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false } = {}) {
+export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false, omitLazyTabs = false } = {}) {
   const windows = Array.isArray(snapshot?.windows) ? snapshot.windows : [];
   return {
     windows: windows
@@ -160,10 +168,16 @@ export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false } =
         }
         // Position 0 is the tab Chrome will activate: always restore it for
         // real. Everything else may be swapped for a cheap placeholder that
-        // only loads the real page when the user clicks the tab.
-        const urls = ordered.map((tab, position) =>
-          position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
-        );
+        // only loads the real page when the user clicks the tab — unless the
+        // caller opts this window out via `omitLazyTabs`.
+        const noLazy = typeof omitLazyTabs === "function"
+          ? omitLazyTabs(window)
+          : Boolean(omitLazyTabs);
+        const urls = noLazy
+          ? ordered.map((tab) => tab.url)
+          : ordered.map((tab, position) =>
+              position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
+            );
         return { urls, incognito: Boolean(window.incognito) };
       })
   };

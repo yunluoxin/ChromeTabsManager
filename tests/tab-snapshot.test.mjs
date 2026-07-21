@@ -369,6 +369,95 @@ test("planRestore with excludeIncognito keeps old (field-less) windows as normal
   assert.equal(plan.windows[0].incognito, false);
 });
 
+test("planRestore with omitLazyTabs: true returns real URLs for every tab", () => {
+  const snap = {
+    windows: [
+      {
+        tabs: [
+          { url: "https://a.com" },
+          { url: "https://b.com" },
+          { url: "https://c.com" }
+        ],
+        activeIndex: 1
+      },
+      {
+        tabs: [{ url: "https://x.com" }, { url: "https://y.com" }],
+        activeIndex: 0
+      }
+    ]
+  };
+  const lazyCalls = [];
+  const plan = planRestore(snap, {
+    lazyUrlFor: (tab) => { lazyCalls.push(tab.url); return `lazy:${tab.url}`; },
+    omitLazyTabs: true
+  });
+  // No lazy wrapper invoked and no lazy URLs produced — even non-active tabs
+  // keep their real URL.
+  assert.deepEqual(lazyCalls, []);
+  assert.deepEqual(plan.windows[0].urls, ["https://b.com", "https://a.com", "https://c.com"]);
+  assert.deepEqual(plan.windows[1].urls, ["https://x.com", "https://y.com"]);
+});
+
+test("planRestore with omitLazyTabs predicate skips lazy only for matching windows", () => {
+  const snap = {
+    windows: [
+      // Normal window: keeps lazy placeholders.
+      {
+        tabs: [{ url: "https://n1.com" }, { url: "https://n2.com" }],
+        activeIndex: 0,
+        incognito: false
+      },
+      // Incognito window: must use real URLs for every tab.
+      {
+        tabs: [{ url: "https://p1.com" }, { url: "https://p2.com" }, { url: "https://p3.com" }],
+        activeIndex: 2,
+        incognito: true
+      }
+    ]
+  };
+  const plan = planRestore(snap, {
+    lazyUrlFor: (tab) => `lazy:${tab.url}`,
+    omitLazyTabs: (window) => window.incognito === true
+  });
+  // Normal window: active tab real, the other wrapped.
+  assert.deepEqual(plan.windows[0].urls, ["https://n1.com", "lazy:https://n2.com"]);
+  // Incognito window: active tab (p3) moved to position 0, all real URLs.
+  assert.deepEqual(plan.windows[1].urls, ["https://p3.com", "https://p1.com", "https://p2.com"]);
+});
+
+test("planRestore with omitLazyTabs predicate still honors activeIndex reordering", () => {
+  // incognito window whose active tab is at index 2 → real URL of that tab
+  // must still land at urls[0]; the rest are the remaining real URLs in their
+  // original order.
+  const snap = {
+    windows: [{
+      tabs: [{ url: "https://a.com" }, { url: "https://b.com" }, { url: "https://c.com" }],
+      activeIndex: 2,
+      incognito: true
+    }]
+  };
+  const plan = planRestore(snap, {
+    lazyUrlFor: () => "SHOULD-NOT-APPEAR",
+    omitLazyTabs: (window) => window.incognito === true
+  });
+  assert.deepEqual(plan.windows[0].urls, ["https://c.com", "https://a.com", "https://b.com"]);
+});
+
+test("planRestore omitLazyTabs: true is a no-op when lazyUrlFor is absent", () => {
+  // Without a lazy builder every tab is real anyway, so omitting lazy tabs
+  // must produce the exact same plan as the default.
+  const snap = {
+    windows: [{
+      tabs: [{ url: "https://a.com" }, { url: "https://b.com" }],
+      activeIndex: 1
+    }]
+  };
+  const base = planRestore(snap);
+  const forced = planRestore(snap, { omitLazyTabs: true });
+  assert.deepEqual(forced, base);
+  assert.deepEqual(forced.windows[0].urls, ["https://b.com", "https://a.com"]);
+});
+
 test("snapshotPrivacy classifies normal, mixed, and pure-incognito snapshots", () => {
   const mixed = { windows: [{ incognito: true }, { incognito: false }] };
   assert.deepEqual(snapshotPrivacy(mixed), {

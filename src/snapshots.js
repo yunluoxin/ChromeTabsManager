@@ -2,7 +2,7 @@
 // everything heavier than one-click restore (multi-select, export, import,
 // preview) lives on this full page.
 import { formatActionSummary } from "./action-summary.js";
-import { api, sendMessage as sendExtensionMessage } from "./chrome-api.js";
+import { api, queryLastFocusedActiveTab, sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -12,8 +12,7 @@ const state = {
   selectedIds: new Set(),
   query: "",
   previewId: null,
-  previewSnapshot: null,
-  currentWindowId: null
+  previewSnapshot: null
 };
 
 const elements = {
@@ -50,7 +49,7 @@ async function init() {
   api.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.tabSnapshots) loadSnapshots();
   });
-  await Promise.all([loadSnapshots(), loadCurrentWindow()]);
+  await loadSnapshots();
 }
 
 async function initTheme() {
@@ -114,15 +113,6 @@ function bindEvents() {
 }
 
 /* ---- Data loading ---- */
-
-async function loadCurrentWindow() {
-  try {
-    const payload = await sendMessage({ type: "getTabs" });
-    state.currentWindowId = payload.currentWindowId;
-  } catch {
-    state.currentWindowId = null;
-  }
-}
 
 async function loadSnapshots() {
   try {
@@ -348,12 +338,18 @@ async function saveAllWindows() {
 }
 
 async function saveCurrentWindow() {
-  if (state.currentWindowId == null) {
+  // Resolve the host window here, on click, instead of trusting the
+  // currentWindowId from getTabGroups — Chrome MV3's service worker
+  // returns a stale/wrong value for windows.getCurrent, so the only safe
+  // source is the UI page's own tabs.query. Firefox returns the same value
+  // either way, so this is a no-op there.
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
     showToast("无法确定当前窗口。", { type: "error" });
     return;
   }
   try {
-    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: state.currentWindowId });
+    const meta = await sendMessage({ type: "saveWindowSnapshot", windowId: tab.windowId });
     showToast(`已保存：${meta.label} · ${meta.tabCount} 标签`);
     await loadSnapshots();
   } catch (error) {
