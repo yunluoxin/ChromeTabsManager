@@ -119,7 +119,7 @@ These are real Chrome MV3 behaviors that Firefox doesn't share; if you ever feel
 - **Default spanning incognito mode blocks extension-page loads into incognito tabs.** This is why the manifest declares `"incognito": "split"` and why popup buttons appear to do *nothing* in incognito if you ever remove it. Firefox does not have this restriction.
 - **`tabs.discard` is rate-limited.** Discarding very many tabs at once will reject; the bulk release path already retries in chunks.
 - **`tabs.move` rejects cross incognito / normal boundaries.** `moveTabsToWindow` translates that into `SkipTabError` so the summary shows "skipped" rather than "failed".
-- **`windows.create` rejects `chrome-extension://` URLs in its `urls` list when the target window is incognito.** This is why `restoreSnapshot` passes `omitLazyTabs: (window) => window.incognito === true` to `planRestore` — privacy windows in a snapshot lose the lazy-load memory saving and restore with real URLs for every tab. Without the override, those non-active tabs silently fail to open and Chrome shows the dreaded "Extension location has moved" page. Firefox permits lazy placeholders in incognito, so the predicate is a no-op there.
+- **Incognito windows refuse `chrome://` URLs** — `chrome://extensions`, `chrome://settings`, `chrome://flags`, etc. all refuse to open in an incognito window regardless of `incognito: "split"`. This is a Chrome browser-level design choice to keep private sessions from leaking the user's extension list or settings. Firefox allows `about:addons` etc. in private windows without ceremony. If a user needs to tweak the extension from inside an incognito window, they have to bounce back to a normal window.
 
 ## Testing
 

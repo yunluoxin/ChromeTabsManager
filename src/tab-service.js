@@ -606,16 +606,17 @@ export async function restoreSnapshot(id, { excludeIncognito = false } = {}) {
     return summary;
   }
   // Only each window's active tab loads for real; the rest come back as
-  // near-free placeholder tabs. Restoring exists to free memory, so this is
-  // the whole point — EXCEPT in incognito windows, where Chrome rejects
-  // `chrome-extension://` URLs in windows.create's url list. Force real URLs
-  // there so every tab actually opens.
-  // When excludeIncognito is set (popup path), private windows are dropped
-  // from the plan entirely.
+  // near-free placeholder tabs pointing at this extension's own page. The
+  // memory saving is the whole point of restoring. Chrome's manifest
+  // declares "incognito": "split", and split-mode Chrome accepts
+  // `chrome-extension://` placeholder URLs inside incognito `windows.create`
+  // url lists — empirically verified after commit 1b107bc — so privacy
+  // windows in a snapshot benefit from lazy loading too. When
+  // excludeIncognito is set (popup path), private windows are dropped from
+  // the plan entirely.
   const plan = planRestore(snapshot, {
     lazyUrlFor: buildLazyTabUrl,
-    excludeIncognito,
-    omitLazyTabs: (window) => window.incognito === true
+    excludeIncognito
   });
   for (const window of plan.windows) {
     if (!window.urls || window.urls.length === 0) {

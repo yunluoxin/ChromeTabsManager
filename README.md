@@ -31,12 +31,14 @@ Chrome 直接加载根目录即可，无需任何构建。
 
 Firefox 不加这个 key——Firefox 把 `split` 当作 `not_allowed`，但 Firefox 本身没有"spanning 模式下扩展页无法进入隐私标签"那个限制，所以默认就直接可用。
 
+split 模式下另一个连带好处：快照恢复时的懒加载（用本扩展的 `chrome-extension://` 占位页替代每个窗口的非活动标签、只让活动标签真正加载）也能在隐私窗口里正常生效——实测 `windows.create` 的 url 列表里塞 `chrome-extension://` 占位 URL 会被 split 模式的 Chrome 接受，没有"扩展位置已移动"报错。所以隐私窗口里的快照恢复同样享受内存节省，Firefox 行为不变。
+
 ### 其他 Chrome 特有行为
 
 - **保存当前窗口**的"当前窗口"判定：在 popup 端用 `tabs.query({active:true, lastFocusedWindow:true})` 解析，不读 service worker 返回的 `currentWindowId`。Chrome MV3 的 service worker 里 `windows.getCurrent` 会给出过期或错位的窗口（隐私 / 普通不分）。Firefox 两边一致。
 - **`tabs.discard`（释放标签内存）**：在标签很多时 Chrome 会拒绝一次性释放全部（防止误操作）。代码里的批量释放会自动分批重试。Firefox 没有这个限流。
 - **`tabs.move` 跨隐私 / 普通窗口**：会抛 `SkipTabError`，由 `formatActionSummary` 归到"跳过"。这是 Chrome 的硬限制，不修。
-- **快照恢复在隐私窗口里不懒加载**：默认情况下恢复快照会用本扩展的 `chrome-extension://` 占位页替代每个窗口的非活动标签（只有活动标签真正加载，目的是省内存）。**Chrome 在隐私窗口里会拒绝 `chrome-extension://` 占位 URL 进入 `windows.create` 的 url 列表**——结果就是非活动标签丢失、Chrome 弹出"扩展位置已移动"。`restoreSnapshot` 通过 `planRestore` 的 `omitLazyTabs` 选项检测 `window.incognito`，**隐私窗口强制走真实 URL**，牺牲这部分窗口的内存节省，换"标签不丢、不报错"。Firefox 不受影响，照常懒加载。
+- **隐私窗口拒绝 `chrome://` 系列内部页面**：在 Chrome 隐私窗口里 `chrome://extensions`、`chrome://settings`、`chrome://flags` 等浏览器内部页面一律打不开——这是 Chrome 浏览器层面的设计（防止隐私窗口泄露扩展列表、配置等）。`incognito: "split"` 也救不了。如果用户需要在隐私窗口里改本扩展的设置、查看扩展 ID、看其它已装扩展，得**切回普通窗口**操作。Firefox 没有这个限制，`about:addons`、`about:preferences` 等在隐私窗口正常打开。
 
 ## 在 Firefox 中使用
 
