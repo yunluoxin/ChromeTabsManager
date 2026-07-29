@@ -112,6 +112,19 @@ function bindEvents() {
   elements.previewOverlay.addEventListener("click", (event) => {
     if (event.target === elements.previewOverlay) closePreview();
   });
+  // Lock vertical scroll on the page behind the overlay. Three cases:
+  //   1. Wheel/Touch landing on the backdrop itself — always swallow, since
+  //      the underlying list is what would otherwise take the scroll.
+  //   2. Wheel/Touch landing inside the dialog (.snapshot-preview subtree)
+  //      on an ancestor that CAN scroll in the wheel direction — let it
+  //      propagate so the preview body scrolls as the user expects.
+  //   3. Wheel/Touch landing inside the dialog but the body is already at
+  //      its top/bottom (or the target is a non-scrollable decoration like
+  //      the header/footer) — swallow so the page behind doesn't move.
+  // The case-3 logic also catches pure vertical hits when the body fits in
+  // the dialog without ever needing to scroll.
+  elements.previewOverlay.addEventListener("wheel", lockBehindPreview, { passive: false });
+  elements.previewOverlay.addEventListener("touchmove", lockBehindPreview, { passive: false });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && state.previewId) closePreview();
   });
@@ -472,6 +485,65 @@ function renderPreview() {
 // natural right edge = `rowRect.right - 0.45rem`. We want it at the body's
 // content-box right edge (`bodyContentRight`). translateX shifts by
 // `-(naturalRight - target)`.
+
+// Wheel/touchmove events inside the overlay must not fall through to the
+// snapshot list behind the dialog.
+//
+// Cases:
+//   • target == overlay backdrop → always preventDefault.
+//   • target inside `.snapshot-preview` → only let the event scroll when an
+//     ancestor of the target actually has room in the wheel direction. When
+//     no such ancestor exists (e.g. the dialog body fits without scrolling,
+//     or the user has already scrolled it to the top/bottom edge), the event
+//     would otherwise bubble to the snapshot list behind the dialog.
+//
+// Touchmove doesn't carry a usable `deltaY`, so for those events the rule
+// simplifies to "block unless a scrollable ancestor is found". The browser
+// handles scroll gestures on a real scrollable element natively when we
+// don't preventDefault.
+function lockBehindPreview(event) {
+  if (event.target === elements.previewOverlay) {
+    event.preventDefault();
+    return;
+  }
+  const scrollable = findScrollableAncestor(event.target);
+  if (!scrollable) {
+    event.preventDefault();
+    return;
+  }
+  // Wheel events have deltaY; non-zero direction lets us detect the edge
+  // case where the user keeps wheeling after the body is already at its
+  // top/bottom and would otherwise scroll the page behind.
+  const deltaY = event.deltaY;
+  if (typeof deltaY !== "number" || deltaY === 0) return;
+  const atTop = scrollable.scrollTop <= 0;
+  const atBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight;
+  if (deltaY < 0 && atTop) {
+    event.preventDefault();
+  } else if (deltaY > 0 && atBottom) {
+    event.preventDefault();
+  }
+}
+
+// Walk up from `node` looking for an ancestor that can scroll vertically.
+// Stops at the dialog itself — ancestors above the dialog (the page behind)
+// must NOT be returned, that's exactly what the lock guards against.
+function findScrollableAncestor(node) {
+  const dialog = elements.previewOverlay.querySelector(".snapshot-preview");
+  let current = node;
+  while (current && current !== dialog) {
+    const style = getComputedStyle(current);
+    const overflowY = style.overflowY;
+    if (
+      (overflowY === "auto" || overflowY === "scroll") &&
+      current.scrollHeight > current.clientHeight
+    ) {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
 function pinOpenButtons() {
   const body = elements.previewBody;
   if (!body) return;
