@@ -650,6 +650,118 @@ export async function listSnapshotDetails() {
   return readSnapshots();
 }
 
+// Restore a single window out of a multi-window snapshot. The preview panel
+// uses this so the user can pick "just this window" rather than the whole
+// bundle. `windowIndex` is the 0-based position the manager page renders.
+//
+// Privacy is preserved: a private source window always opens as a private
+// destination window. We keep the same lazy-placeholder behavior as the full
+// restore so opening one window still gives you the memory-saving benefit on
+// the non-active tabs — Chrome's split-mode incognito allows
+// `chrome-extension://` URLs in `windows.create({ incognito: true })` url
+// lists (verified in commit 1b107bc), so incognito windows keep their placeholders.
+export async function openSnapshotWindow(snapshotId, windowIndex) {
+  const summary = createSummary();
+  const snapshot = await getSnapshot(snapshotId);
+  if (!snapshot) {
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+
+  const windows = Array.isArray(snapshot.windows) ? snapshot.windows : [];
+  const idx = Number(windowIndex);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= windows.length) {
+    summary.failed = 1;
+    summary.errors.push("窗口不存在");
+    return summary;
+  }
+
+  const target = windows[idx];
+  // Reuse planRestore for the same privacy-aware url ordering and lazy
+  // treatment — pass a one-window array-shaped snapshot so planRestore sees
+  // exactly what we'd restore.
+  const sliced = {
+    ...snapshot,
+    windows: [target],
+    windowCount: 1,
+    tabCount: Array.isArray(target.tabs) ? target.tabs.length : 0
+  };
+  const plan = planRestore(sliced, {
+    lazyUrlFor: buildLazyTabUrl
+  });
+  const entry = plan.windows[0];
+  if (!entry || !entry.urls || entry.urls.length === 0) {
+    summary.failed = 1;
+    summary.errors.push("窗口内没有可打开的标签");
+    return summary;
+  }
+
+  try {
+    const createData = { url: entry.urls };
+    if (entry.incognito) createData.incognito = true;
+    await createWindow(createData);
+    summary.succeeded = 1;
+  } catch (error) {
+    summary.failed = 1;
+    summary.errors.push(entry.incognito
+      ? `隐私窗口打开失败，请在扩展设置中允许隐私模式：${error.message}`
+      : error.message);
+  }
+  return summary;
+}
+
+// Restore one tab from the snapshot into its own new window. The
+// destination's privacy matches the source tab's privacy flag (which equals
+// the source window's privacy since all tabs in a window share it). No lazy
+// placeholders here — the user picked this tab on purpose, so it should
+// actually load.
+export async function openSnapshotTab(snapshotId, windowIndex, tabIndex) {
+  const summary = createSummary();
+  const snapshot = await getSnapshot(snapshotId);
+  if (!snapshot) {
+    summary.failed = 1;
+    summary.errors.push("快照不存在");
+    return summary;
+  }
+
+  const windows = Array.isArray(snapshot.windows) ? snapshot.windows : [];
+  const wIdx = Number(windowIndex);
+  const tIdx = Number(tabIndex);
+  const targetWindow = windows[wIdx];
+  const tabs = Array.isArray(targetWindow?.tabs) ? targetWindow.tabs : [];
+  if (!targetWindow || !Number.isInteger(wIdx) || wIdx < 0 || wIdx >= windows.length) {
+    summary.failed = 1;
+    summary.errors.push("窗口不存在");
+    return summary;
+  }
+  if (!Number.isInteger(tIdx) || tIdx < 0 || tIdx >= tabs.length) {
+    summary.failed = 1;
+    summary.errors.push("标签不存在");
+    return summary;
+  }
+  const tab = tabs[tIdx];
+  if (!tab || typeof tab.url !== "string" || !tab.url) {
+    summary.failed = 1;
+    summary.errors.push("标签缺少可用的链接");
+    return summary;
+  }
+
+  const incognito = Boolean(tab.incognito ?? targetWindow.incognito);
+  try {
+    const createData = { url: [tab.url] };
+    if (incognito) createData.incognito = true;
+    await createWindow(createData);
+    summary.succeeded = 1;
+  } catch (error) {
+    summary.failed = 1;
+    summary.errors.push(incognito
+      ? `隐私标签打开失败，请在扩展设置中允许隐私模式：${error.message}`
+      : error.message);
+  }
+  return summary;
+}
+
 // Batch delete; missing ids count as skipped, not failures — the manager page
 // multi-selects from a possibly-stale list, so a row vanishing mid-select is
 // normal, not an error.

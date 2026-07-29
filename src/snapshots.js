@@ -103,6 +103,11 @@ function bindEvents() {
   elements.closePreview.addEventListener("click", closePreview);
   elements.restorePreview.addEventListener("click", restoreFromPreview);
   elements.refresh.addEventListener("click", () => loadSnapshots());
+  elements.previewBody.addEventListener("click", handlePreviewBodyClick);
+  // Keep open buttons pinned to the body's visible right edge while the user
+  // scrolls horizontally (long tab titles push the list wider than the dialog).
+  elements.previewBody.addEventListener("scroll", pinOpenButtons, { passive: true });
+  window.addEventListener("resize", pinOpenButtons);
   // Backdrop click (outside the dialog) dismisses the preview.
   elements.previewOverlay.addEventListener("click", (event) => {
     if (event.target === elements.previewOverlay) closePreview();
@@ -449,6 +454,49 @@ function renderPreview() {
   elements.previewBody.innerHTML = snapshot.windows
     .map((window, index) => renderPreviewWindow(window, index))
     .join("");
+  // Reset cached button width + recompute pin positions.
+  pinOpenButtons();
+}
+
+// Pure-CSS attempts to keep the open buttons anchored at the body's
+// scroll-viewport right edge didn't survive overflow reliably across browsers,
+// so the buttons sit absolute-positioned at each row's right edge and a small
+// helper translates them so their right edge aligns with the body's visible
+// content-box right edge. When the rows fit the body (most snapshots), the
+// helper is a no-op. When a row is wider than the body, the helper pulls
+// every button back into the viewport regardless of which row is widest.
+//
+// Math: button is `position: absolute; right: 0.45rem` against its row
+// (`.preview-window` / `.preview-tab`, the closest positioned ancestor).
+// Row's right edge in viewport coords = `rowRect.right`. So the button's
+// natural right edge = `rowRect.right - 0.45rem`. We want it at the body's
+// content-box right edge (`bodyContentRight`). translateX shifts by
+// `-(naturalRight - target)`.
+function pinOpenButtons() {
+  const body = elements.previewBody;
+  if (!body) return;
+  const bodyRect = body.getBoundingClientRect();
+  const bodyStyle = getComputedStyle(body);
+  const bodyPadRight = parseFloat(bodyStyle.paddingRight) || 0;
+  const bodyBorderRight = parseFloat(bodyStyle.borderRightWidth) || 0;
+  // Right edge of body's visible content (border-box right minus padding).
+  const bodyContentRight = bodyRect.right - bodyBorderRight - bodyPadRight;
+  const rootFont = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  const buttonGutterPx = 0.45 * rootFont;
+
+  const buttons = body.querySelectorAll(".preview-window__open, .preview-tab__open");
+  buttons.forEach((button) => {
+    const row = button.closest(".preview-window, .preview-tab");
+    if (!row) return;
+    const rowRect = row.getBoundingClientRect();
+    // Button's natural absolute-position right edge (no transform).
+    const naturalRight = rowRect.right - buttonGutterPx;
+    const overshoot = naturalRight - bodyContentRight;
+    // Sub-pixel safe cutoff to avoid jitter on fractional values.
+    button.style.transform = overshoot > 0.5
+      ? `translateX(${-overshoot}px)`
+      : "";
+  });
 }
 
 function renderPreviewWindow(window, index) {
@@ -463,19 +511,23 @@ function renderPreviewWindow(window, index) {
     const active = isActive ? `<span class="preview-tab__badge preview-tab__badge--active">活动</span>` : "";
     const incognito = tab.incognito ? `<span class="preview-tab__badge preview-tab__badge--incognito">🕶 隐身</span>` : "";
     const tabIncognitoClass = tab.incognito ? " incognito" : "";
+    const openTitle = tab.incognito ? "在新隐私窗口打开此标签" : "在新窗口打开此标签";
     return `
-      <li class="preview-tab${tabIncognitoClass}">
+      <li class="preview-tab${tabIncognitoClass}" data-tab-index="${tabIndex}">
         ${favicon}
         <span class="preview-tab__title" title="${escapeAttribute(tab.url)}">${escapeHtml(tab.title || tab.url)}</span>
-        ${pinned}${active}${incognito}
+        <span class="preview-tab__badges">${pinned}${active}${incognito}</span>
+        <button type="button" class="preview-tab__open icon-button" data-action="open-tab" title="${openTitle}" aria-label="${openTitle}">↗</button>
       </li>
     `;
   }).join("");
   const windowIncognitoClass = isIncognito ? " incognito" : "";
   const windowBadge = isIncognito ? ` <span class="preview-window__badge">🕶 隐身窗口</span>` : "";
+  const openWindowTitle = isIncognito ? "打开此隐私窗口" : "打开此窗口";
   return `
-    <section class="preview-window${windowIncognitoClass}">
+    <section class="preview-window${windowIncognitoClass}" data-window-index="${index}">
       <h3>窗口 ${index + 1} <span class="muted">· ${tabs.length} 标签</span>${windowBadge}</h3>
+      <button type="button" class="preview-window__open icon-button" data-action="open-window" title="${openWindowTitle}" aria-label="${openWindowTitle}">↗ 打开</button>
       <ul class="preview-tab-list">${rows}</ul>
     </section>
   `;
@@ -508,6 +560,52 @@ async function restoreFromPreview() {
   const id = state.previewId;
   closePreview();
   await executeRestore(id);
+}
+
+// Per-row open buttons inside the preview overlay. They don't dismiss the
+// overlay — the user is likely planning several openings in a row.
+async function handlePreviewBodyClick(event) {
+  const windowButton = event.target.closest("button[data-action='open-window']");
+  if (windowButton) {
+    event.stopPropagation();
+    const winEl = windowButton.closest(".preview-window");
+    const wIdx = Number(winEl?.dataset.windowIndex);
+    if (!Number.isInteger(wIdx)) return;
+    await openWindowFromPreview(wIdx);
+    return;
+  }
+  const tabButton = event.target.closest("button[data-action='open-tab']");
+  if (tabButton) {
+    event.stopPropagation();
+    const tabEl = tabButton.closest(".preview-tab");
+    const winEl = tabButton.closest(".preview-window");
+    const wIdx = Number(winEl?.dataset.windowIndex);
+    const tIdx = Number(tabEl?.dataset.tabIndex);
+    if (!Number.isInteger(wIdx) || !Number.isInteger(tIdx)) return;
+    await openTabFromPreview(wIdx, tIdx);
+  }
+}
+
+async function openWindowFromPreview(windowIndex) {
+  if (!state.previewId) return;
+  const id = state.previewId;
+  try {
+    const result = await sendMessage({ type: "openSnapshotWindow", id, windowIndex });
+    showToast(`已打开：${formatActionSummary(result)}`);
+  } catch (error) {
+    showToast(error.message, { type: "error" });
+  }
+}
+
+async function openTabFromPreview(windowIndex, tabIndex) {
+  if (!state.previewId) return;
+  const id = state.previewId;
+  try {
+    const result = await sendMessage({ type: "openSnapshotTab", id, windowIndex, tabIndex });
+    showToast(`已打开：${formatActionSummary(result)}`);
+  } catch (error) {
+    showToast(error.message, { type: "error" });
+  }
 }
 
 /* ---- Helpers ---- */

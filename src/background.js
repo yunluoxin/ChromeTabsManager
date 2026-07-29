@@ -14,6 +14,8 @@ import {
   listSnapshots,
   listWindows,
   moveTabsToWindow,
+  openSnapshotTab,
+  openSnapshotWindow,
   reconcileOpenTabs,
   recordTabOpened,
   removeTabMetadata,
@@ -105,6 +107,10 @@ async function handleMessage(message) {
       return renameSnapshot(message.id, message.label);
     case "restoreSnapshot":
       return restoreSnapshot(message.id, { excludeIncognito: Boolean(message.excludeIncognito) });
+    case "openSnapshotWindow":
+      return openSnapshotWindow(message.id, message.windowIndex);
+    case "openSnapshotTab":
+      return openSnapshotTab(message.id, message.windowIndex, message.tabIndex);
     default:
       throw new Error(`Unknown message type: ${message?.type}`);
   }
