@@ -21,7 +21,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "dist", "firefox");
 
 // Every top-level entry the extension needs at runtime, besides the manifest.
-const SYNCED_ENTRIES = ["src", "popup.html", "dashboard.html", "snapshots.html", "lazy-tab.html"];
+const SYNCED_ENTRIES = ["src", "assets", "popup.html", "dashboard.html", "snapshots.html", "lazy-tab.html"];
 
 async function sync() {
   await mkdir(outDir, { recursive: true });
