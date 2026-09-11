@@ -180,3 +180,17 @@ export function formatBoundsSummary(snapshot) {
   }
   return parts.join(" · ");
 }
+
+// Compact "720*1080" size label for the preview panel — only when both
+// width and height are known. Special states (maximized / fullscreen /
+// minimized) intentionally render as "" because the size doesn't reflect
+// what the user actually sees after restore (and forcing a fake size would
+// mislead them).
+export function formatWindowSizeLabel(bounds) {
+  if (!bounds || typeof bounds !== "object") return "";
+  if (bounds.state === "maximized" || bounds.state === "fullscreen" || bounds.state === "minimized") {
+    return "";
+  }
+  if (typeof bounds.width !== "number" || typeof bounds.height !== "number") return "";
+  return `${bounds.width}*${bounds.height}`;
+}

@@ -4,6 +4,7 @@ import {
   applyBoundsToCreateData,
   formatBoundsLabel,
   formatBoundsSummary,
+  formatWindowSizeLabel,
   isBoundsValidForScreen,
   sanitizeCapturedBounds
 } from "../src/window-bounds.js";
@@ -197,4 +198,28 @@ test("formatBoundsSummary returns an empty string when nothing is captured", () 
   assert.equal(formatBoundsSummary(null), "");
   assert.equal(formatBoundsSummary({ windows: [] }), "");
   assert.equal(formatBoundsSummary({ windows: [{ tabs: [] }] }), "");
+});
+
+test("formatWindowSizeLabel returns width*height for normal windows", () => {
+  assert.equal(
+    formatWindowSizeLabel({ width: 720, height: 1080 }),
+    "720*1080"
+  );
+});
+
+test("formatWindowSizeLabel returns empty string for special window states", () => {
+  // A maximized window has no meaningful captured size — the user wouldn't
+  // see "1920*1080" land; it'd just snap to the full screen. Showing nothing
+  // keeps the preview honest about what restore will actually do.
+  assert.equal(formatWindowSizeLabel({ state: "maximized" }), "");
+  assert.equal(formatWindowSizeLabel({ state: "fullscreen" }), "");
+  assert.equal(formatWindowSizeLabel({ state: "minimized" }), "");
+});
+
+test("formatWindowSizeLabel returns empty when size is missing or partial", () => {
+  assert.equal(formatWindowSizeLabel(null), "");
+  assert.equal(formatWindowSizeLabel(undefined), "");
+  assert.equal(formatWindowSizeLabel({}), "");
+  assert.equal(formatWindowSizeLabel({ width: 1440 }), "");
+  assert.equal(formatWindowSizeLabel({ height: 900 }), "");
 });

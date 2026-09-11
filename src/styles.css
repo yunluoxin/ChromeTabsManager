@@ -1018,11 +1018,6 @@ body[data-mode="by-age"] .move-controls {
   text-overflow: ellipsis;
 }
 
-.snapshot-row__bounds {
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 .snapshot-row__actions {
   display: inline-flex;
   gap: 0.3rem;
@@ -1324,6 +1319,18 @@ body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
   background: var(--incognito-soft);
   color: var(--incognito);
   font-size: 0.68rem;
+}
+
+/* Window size shown next to the tab count in the preview header. Smaller
+ * and quieter than the surrounding title so it reads as metadata rather than
+ * part of the window label. */
+.preview-window__size {
+  display: inline-block;
+  margin-left: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Incognito marker on snapshot rows (popup + manager). */

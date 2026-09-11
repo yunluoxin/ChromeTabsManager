@@ -4,6 +4,7 @@
 import { formatActionSummary } from "./action-summary.js";
 import { api, queryLastFocusedActiveTab, sendMessage as sendExtensionMessage } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
+import { formatWindowSizeLabel } from "./window-bounds.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
 
@@ -187,15 +188,12 @@ function renderRow(snapshot) {
   const incognitoBadge = snapshot.hasIncognito
     ? `<span class="snapshot-row__badge" title="包含隐私窗口">🕶 隐身</span>`
     : "";
-  const boundsLabel = snapshot.boundsSummary
-    ? `<span class="snapshot-row__bounds" title="保存的窗口尺寸 / 位置">· ${escapeHtml(snapshot.boundsSummary)}</span>`
-    : "";
   return `
     <div class="snapshot-row snapshot-manager-row${isPreviewing}" data-snapshot-id="${escapeAttribute(snapshot.id)}">
       <input type="checkbox" class="snapshot-row__check" aria-label="选择快照" ${checked}>
       <div class="snapshot-row__meta">
         <span class="snapshot-row__time">${label}${incognitoBadge}</span>
-        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}${boundsLabel}</span>
+        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}</span>
       </div>
       <div class="snapshot-row__actions">
         <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">⟳</button>
@@ -577,6 +575,10 @@ function pinOpenButtons() {
 function renderPreviewWindow(window, index) {
   const tabs = Array.isArray(window.tabs) ? window.tabs : [];
   const isIncognito = window.incognito === true;
+  const sizeLabel = formatWindowSizeLabel(window.bounds);
+  const sizeSegment = sizeLabel
+    ? ` <span class="preview-window__size">(${escapeHtml(sizeLabel)})</span>`
+    : "";
   const rows = tabs.map((tab, tabIndex) => {
     const isActive = tabIndex === window.activeIndex;
     const favicon = tab.favIconUrl
@@ -601,7 +603,7 @@ function renderPreviewWindow(window, index) {
   const openWindowTitle = isIncognito ? "打开此隐私窗口" : "打开此窗口";
   return `
     <section class="preview-window${windowIncognitoClass}" data-window-index="${index}">
-      <h3>窗口 ${index + 1} <span class="muted">· ${tabs.length} 标签</span>${windowBadge}</h3>
+      <h3>窗口 ${index + 1} <span class="muted">· ${tabs.length} 标签</span>${sizeSegment}${windowBadge}</h3>
       <button type="button" class="preview-window__open icon-button" data-action="open-window" title="${openWindowTitle}" aria-label="${openWindowTitle}">↗ 打开</button>
       <ul class="preview-tab-list">${rows}</ul>
     </section>
