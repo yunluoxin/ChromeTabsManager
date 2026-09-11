@@ -264,7 +264,7 @@ async function restoreSnapshotById(id) {
     // Popup restore never brings private windows back — the list already
     // hides pure-incognito snapshots, and mixed snapshots restore only their
     // normal windows.
-    const result = await sendMessage({ type: "restoreSnapshot", id, excludeIncognito: true });
+    const result = await sendMessage({ type: "restoreSnapshot", id, excludeIncognito: true, screen: captureScreenInfo() });
     showToast(`已恢复：${formatActionSummary(result)}`);
   } catch (error) {
     showToast(error.message, { type: "error" });
@@ -303,4 +303,18 @@ function sendMessage(message) {
     showToast(error.message, { type: "error" });
     throw error;
   });
+}
+
+// Pass the popup's screen work area to the background so off-screen windows
+// (e.g. on a monitor that's no longer connected) are silently repositioned
+// by Chrome rather than failing the restore.
+function captureScreenInfo() {
+  const screen = typeof window !== "undefined" ? window.screen : null;
+  if (!screen) return null;
+  return {
+    availLeft: screen.availLeft,
+    availTop: screen.availTop,
+    availWidth: screen.availWidth,
+    availHeight: screen.availHeight
+  };
 }

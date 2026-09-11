@@ -345,6 +345,90 @@ test("planRestore carries window incognito into the plan", () => {
   assert.equal(plan.windows[1].incognito, false);
 });
 
+/* ---- bounds (window geometry) ---- */
+
+test("captureSnapshot records window bounds from the windows list", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(
+    tabs,
+    [{ id: 11, top: 50, left: 100, width: 1440, height: 900, state: "normal" }],
+    1000
+  );
+  assert.deepEqual(snap.windows[0].bounds, {
+    width: 1440,
+    height: 900,
+    left: 100,
+    top: 50,
+    state: "normal"
+  });
+});
+
+test("captureSnapshot omits bounds when no geometry is available", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  // Stub window with no bounds at all — matches what saveWindowSnapshot
+  // would produce if the live window had closed before queryWindows returned.
+  const snap = captureSnapshot(tabs, [{ id: 11 }], 1000);
+  assert.equal(snap.windows[0].bounds, undefined);
+});
+
+test("captureSnapshot drops individual invalid bounds fields", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(
+    tabs,
+    [{ id: 11, top: 50, left: 100, width: -1, height: 900, state: "weird" }],
+    1000
+  );
+  assert.deepEqual(snap.windows[0].bounds, { left: 100, top: 50, height: 900 });
+});
+
+test("captureSnapshot stores only the state field for maximized windows", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(
+    tabs,
+    [{ id: 11, state: "maximized" }],
+    1000
+  );
+  // Width/height aren't reported for maximized windows, so all that's left is
+  // the state string — exactly what restore needs to skip geometry.
+  assert.deepEqual(snap.windows[0].bounds, { state: "maximized" });
+});
+
+test("planRestore carries bounds into the plan", () => {
+  const snap = {
+    windows: [
+      {
+        tabs: [{ url: "https://a.com" }],
+        activeIndex: 0,
+        incognito: false,
+        bounds: { width: 1440, height: 900, left: 100, top: 50, state: "normal" }
+      },
+      {
+        tabs: [{ url: "https://b.com" }],
+        activeIndex: 0,
+        incognito: false,
+        bounds: { state: "maximized" }
+      }
+    ]
+  };
+  const plan = planRestore(snap);
+  assert.deepEqual(plan.windows[0].bounds, {
+    width: 1440,
+    height: 900,
+    left: 100,
+    top: 50,
+    state: "normal"
+  });
+  assert.deepEqual(plan.windows[1].bounds, { state: "maximized" });
+});
+
+test("planRestore surfaces null bounds for old snapshots that lack them", () => {
+  const snap = {
+    windows: [{ tabs: [{ url: "https://a.com" }], activeIndex: 0, incognito: false }]
+  };
+  const plan = planRestore(snap);
+  assert.equal(plan.windows[0].bounds, null);
+});
+
 test("planRestore with excludeIncognito drops private windows only", () => {
   const snap = {
     windows: [
@@ -493,4 +577,65 @@ test("parseSnapshotImport preserves tab and window incognito", () => {
   const w = result.snapshots[0].windows[0];
   assert.equal(w.incognito, true);
   assert.equal(w.tabs[0].incognito, true);
+});
+
+test("parseSnapshotImport round-trips window bounds", () => {
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-b",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      {
+        activeIndex: 0,
+        bounds: { width: 1440, height: 900, left: 100, top: 50, state: "normal" },
+        tabs: [{ url: "https://b.com" }]
+      },
+      {
+        activeIndex: 0,
+        bounds: { state: "maximized" },
+        tabs: [{ url: "https://c.com" }]
+      }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  assert.deepEqual(result.snapshots[0].windows[0].bounds, {
+    width: 1440,
+    height: 900,
+    left: 100,
+    top: 50,
+    state: "normal"
+  });
+  assert.deepEqual(result.snapshots[0].windows[1].bounds, { state: "maximized" });
+});
+
+test("parseSnapshotImport drops malformed bounds but keeps the snapshot", () => {
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-bad",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      {
+        activeIndex: 0,
+        bounds: { width: -50, height: "no", state: "weird" },
+        tabs: [{ url: "https://d.com" }]
+      }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  // Every bounds field was unusable → no `bounds` key on the imported window,
+  // matching captureSnapshot's "only attach when something usable" behavior.
+  assert.equal(result.snapshots[0].windows[0].bounds, undefined);
+});
+
+test("parseSnapshotImport keeps old snapshots without a bounds key", () => {
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-old",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      { activeIndex: 0, tabs: [{ url: "https://legacy.com" }] }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  assert.equal(result.snapshots[0].windows[0].bounds, undefined);
 });

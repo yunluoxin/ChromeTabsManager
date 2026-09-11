@@ -187,12 +187,15 @@ function renderRow(snapshot) {
   const incognitoBadge = snapshot.hasIncognito
     ? `<span class="snapshot-row__badge" title="包含隐私窗口">🕶 隐身</span>`
     : "";
+  const boundsLabel = snapshot.boundsSummary
+    ? `<span class="snapshot-row__bounds" title="保存的窗口尺寸 / 位置">· ${escapeHtml(snapshot.boundsSummary)}</span>`
+    : "";
   return `
     <div class="snapshot-row snapshot-manager-row${isPreviewing}" data-snapshot-id="${escapeAttribute(snapshot.id)}">
       <input type="checkbox" class="snapshot-row__check" aria-label="选择快照" ${checked}>
       <div class="snapshot-row__meta">
         <span class="snapshot-row__time">${label}${incognitoBadge}</span>
-        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}</span>
+        <span class="snapshot-row__stats">${snapshot.windowCount} 窗口 · ${snapshot.tabCount} 标签 · ${createdAtLabel}${boundsLabel}</span>
       </div>
       <div class="snapshot-row__actions">
         <button type="button" class="icon-button" data-action="restore" title="恢复" aria-label="恢复">⟳</button>
@@ -276,7 +279,7 @@ async function restoreSnapshotById(id) {
 async function executeRestore(id) {
   showToast("正在恢复…");
   try {
-    const result = await sendMessage({ type: "restoreSnapshot", id });
+    const result = await sendMessage({ type: "restoreSnapshot", id, screen: captureScreenInfo() });
     showToast(`已恢复：${formatActionSummary(result)}`);
   } catch (error) {
     showToast(error.message, { type: "error" });
@@ -662,7 +665,7 @@ async function openWindowFromPreview(windowIndex) {
   if (!state.previewId) return;
   const id = state.previewId;
   try {
-    const result = await sendMessage({ type: "openSnapshotWindow", id, windowIndex });
+    const result = await sendMessage({ type: "openSnapshotWindow", id, windowIndex, screen: captureScreenInfo() });
     showToast(`已打开：${formatActionSummary(result)}`);
   } catch (error) {
     showToast(error.message, { type: "error" });
@@ -673,7 +676,7 @@ async function openTabFromPreview(windowIndex, tabIndex) {
   if (!state.previewId) return;
   const id = state.previewId;
   try {
-    const result = await sendMessage({ type: "openSnapshotTab", id, windowIndex, tabIndex });
+    const result = await sendMessage({ type: "openSnapshotTab", id, windowIndex, tabIndex, screen: captureScreenInfo() });
     showToast(`已打开：${formatActionSummary(result)}`);
   } catch (error) {
     showToast(error.message, { type: "error" });
@@ -697,4 +700,19 @@ function escapeAttribute(value) {
 
 function sendMessage(message) {
   return sendExtensionMessage(message);
+}
+
+// Snapshot of the user's current screen work area, passed to the background so
+// it can refuse to restore windows that would land off-screen (e.g. on a
+// monitor that's no longer connected). window.screen is always present in
+// extension pages — we never need a fallback.
+function captureScreenInfo() {
+  const screen = typeof window !== "undefined" ? window.screen : null;
+  if (!screen) return null;
+  return {
+    availLeft: screen.availLeft,
+    availTop: screen.availTop,
+    availWidth: screen.availWidth,
+    availHeight: screen.availHeight
+  };
 }

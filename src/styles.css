@@ -1018,6 +1018,11 @@ body[data-mode="by-age"] .move-controls {
   text-overflow: ellipsis;
 }
 
+.snapshot-row__bounds {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .snapshot-row__actions {
   display: inline-flex;
   gap: 0.3rem;

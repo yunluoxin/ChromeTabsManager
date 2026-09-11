@@ -31,6 +31,7 @@
 // decide which windows must skip lazy URLs.
 
 import { isSystemUrl } from "./system-urls.js";
+import { sanitizeCapturedBounds } from "./window-bounds.js";
 
 export function generateSnapshotId(createdAt) {
   return `snap-${createdAt}`;
@@ -134,10 +135,19 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
     const incognito = incognitoByWindow.has(wid)
       ? incognitoByWindow.get(wid)
       : ordered.some((tab) => tab.incognito);
+    // Geometry: pull the matching window record from the input list and let
+    // the sanitizer decide which fields are worth keeping. captureSnapshot
+    // accepts stub windows (no bounds fields at all) as well as full
+    // chrome.windows.Window objects, so a missing record just yields null.
+    const liveWindow = windows && windows.length > 0
+      ? windows.find((win) => win && win.id === wid)
+      : null;
+    const bounds = sanitizeCapturedBounds(liveWindow);
     capturedWindows.push({
       tabs: ordered.map(pickTab),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
-      incognito: Boolean(incognito)
+      incognito: Boolean(incognito),
+      ...(bounds ? { bounds } : {})
     });
     tabCount += ordered.length;
   }
@@ -178,7 +188,7 @@ export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false, om
           : ordered.map((tab, position) =>
               position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
             );
-        return { urls, incognito: Boolean(window.incognito) };
+        return { urls, incognito: Boolean(window.incognito), bounds: window.bounds ?? null };
       })
   };
 }
@@ -297,7 +307,18 @@ export function parseSnapshotImport(json, { existingIds = new Set(), createdAt =
       const incognito = typeof rawWindow?.incognito === "boolean"
         ? rawWindow.incognito
         : tabs.some((tab) => tab.incognito);
-      windows.push({ tabs, activeIndex, incognito: Boolean(incognito) });
+      // Bounds are optional. sanitizeCapturedBounds drops individual fields
+      // it can't trust, so a partially-malformed import still keeps whatever
+      // is salvageable — and old exports without `bounds` round-trip without
+      // the key (mirrors captureSnapshot's "only attach when something
+      // usable" behavior).
+      const bounds = sanitizeCapturedBounds(rawWindow?.bounds);
+      windows.push({
+        tabs,
+        activeIndex,
+        incognito: Boolean(incognito),
+        ...(bounds ? { bounds } : {})
+      });
       tabCount += tabs.length;
     }
     if (windows.length === 0) { skipped += 1; continue; }

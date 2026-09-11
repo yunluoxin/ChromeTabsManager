@@ -18,6 +18,7 @@ import {
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
 import { groupTabsByWindow } from "./window-grouping.js";
+import { applyBoundsToCreateData, formatBoundsSummary, isBoundsValidForScreen } from "./window-bounds.js";
 import {
   buildSnapshotExport,
   captureSnapshot,
@@ -423,7 +424,8 @@ function summarizeSnapshot(snapshot) {
     windowCount: snapshot.windowCount,
     tabCount: snapshot.tabCount,
     hasIncognito: privacy.hasIncognito,
-    hasNormal: privacy.hasNormal
+    hasNormal: privacy.hasNormal,
+    boundsSummary: formatBoundsSummary(snapshot)
   };
 }
 
@@ -448,9 +450,17 @@ export async function saveWindowSnapshot(windowId) {
 
   const allTabs = await queryTabs({});
   const windowTabs = allTabs.filter((tab) => tab.windowId === safeWindowId);
-  // Reuse the single-window shape: passing a one-element windows list keeps
-  // captureSnapshot's knownWindowIds filter narrow to the target window.
-  const snapshot = captureSnapshot(windowTabs, [{ id: safeWindowId }], Date.now());
+  // Look up the live window so captureSnapshot can read its geometry (bounds
+  // / state). Fall back to a stub when the window vanished between the tab
+  // query and here — the tabs are already filtered to that windowId so the
+  // capture still finds them, just without geometry.
+  const liveWindows = await queryWindows({}).catch(() => []);
+  const liveWindow = liveWindows.find((win) => win?.id === safeWindowId);
+  const snapshot = captureSnapshot(
+    windowTabs,
+    [liveWindow || { id: safeWindowId }],
+    Date.now()
+  );
 
   if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
     const summary = createSummary();
@@ -492,9 +502,13 @@ export async function saveSelectedSnapshot(tabIds) {
   }
 
   // Mirrors saveWindowSnapshot: captureSnapshot needs the windows list to
-  // keep its knownWindowIds filter narrow, so pass one stub per source window.
+  // keep its knownWindowIds filter narrow. Look up each source window so its
+  // geometry is preserved with the snapshot; fall back to a stub when the
+  // window has already been closed between the tab query and here.
   const windowIds = [...new Set(selectedTabs.map((tab) => tab.windowId))];
-  const windows = windowIds.map((id) => ({ id }));
+  const liveWindows = await queryWindows({}).catch(() => []);
+  const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
+  const windows = windowIds.map((id) => liveById.get(id) || { id });
 
   const snapshot = captureSnapshot(selectedTabs, windows, Date.now());
 
@@ -597,7 +611,7 @@ function buildLazyTabUrl(tab) {
   return `${getExtensionUrl("lazy-tab.html")}?${params.toString()}`;
 }
 
-export async function restoreSnapshot(id, { excludeIncognito = false } = {}) {
+export async function restoreSnapshot(id, { excludeIncognito = false, screen = null } = {}) {
   const summary = createSummary();
   const snapshot = await getSnapshot(id);
   if (!snapshot) {
@@ -631,6 +645,15 @@ export async function restoreSnapshot(id, { excludeIncognito = false } = {}) {
       // access, which we surface as a failure below.
       const createData = { url: window.urls };
       if (window.incognito) createData.incognito = true;
+      // Geometry is best-effort: if the window would land off-screen (e.g.
+      // the user's monitor layout changed since the snapshot was saved), we
+      // silently drop the bounds and let Chrome pick a default. state and
+      // width/height are mutually exclusive in the WebExtensions spec, so
+      // applyBoundsToCreateData handles that internally.
+      const usableBounds = isBoundsValidForScreen(window.bounds, screen)
+        ? window.bounds
+        : null;
+      applyBoundsToCreateData(createData, usableBounds);
       await createWindow(createData);
       summary.succeeded += 1;
     } catch (error) {
@@ -660,7 +683,7 @@ export async function listSnapshotDetails() {
 // the non-active tabs — Chrome's split-mode incognito allows
 // `chrome-extension://` URLs in `windows.create({ incognito: true })` url
 // lists (verified in commit 1b107bc), so incognito windows keep their placeholders.
-export async function openSnapshotWindow(snapshotId, windowIndex) {
+export async function openSnapshotWindow(snapshotId, windowIndex, { screen = null } = {}) {
   const summary = createSummary();
   const snapshot = await getSnapshot(snapshotId);
   if (!snapshot) {
@@ -700,6 +723,10 @@ export async function openSnapshotWindow(snapshotId, windowIndex) {
   try {
     const createData = { url: entry.urls };
     if (entry.incognito) createData.incognito = true;
+    const usableBounds = isBoundsValidForScreen(entry.bounds, screen)
+      ? entry.bounds
+      : null;
+    applyBoundsToCreateData(createData, usableBounds);
     await createWindow(createData);
     summary.succeeded = 1;
   } catch (error) {
@@ -716,7 +743,7 @@ export async function openSnapshotWindow(snapshotId, windowIndex) {
 // the source window's privacy since all tabs in a window share it). No lazy
 // placeholders here — the user picked this tab on purpose, so it should
 // actually load.
-export async function openSnapshotTab(snapshotId, windowIndex, tabIndex) {
+export async function openSnapshotTab(snapshotId, windowIndex, tabIndex, { screen = null } = {}) {
   const summary = createSummary();
   const snapshot = await getSnapshot(snapshotId);
   if (!snapshot) {

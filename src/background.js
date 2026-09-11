@@ -106,11 +106,18 @@ async function handleMessage(message) {
     case "renameSnapshot":
       return renameSnapshot(message.id, message.label);
     case "restoreSnapshot":
-      return restoreSnapshot(message.id, { excludeIncognito: Boolean(message.excludeIncognito) });
+      return restoreSnapshot(message.id, {
+        excludeIncognito: Boolean(message.excludeIncognito),
+        screen: message.screen ?? null
+      });
     case "openSnapshotWindow":
-      return openSnapshotWindow(message.id, message.windowIndex);
+      return openSnapshotWindow(message.id, message.windowIndex, {
+        screen: message.screen ?? null
+      });
     case "openSnapshotTab":
-      return openSnapshotTab(message.id, message.windowIndex, message.tabIndex);
+      return openSnapshotTab(message.id, message.windowIndex, message.tabIndex, {
+        screen: message.screen ?? null
+      });
     default:
       throw new Error(`Unknown message type: ${message?.type}`);
   }
