@@ -3,7 +3,7 @@
   "name": "Chrome History Tab Manager",
   "description": "Group open tabs by age, then close, bookmark, or release memory in bulk.",
   "version": "0.1.0",
-  "permissions": ["tabs", "bookmarks", "history", "storage", "windows"],
+  "permissions": ["tabs", "bookmarks", "history", "storage", "windows", "system.display"],
   "incognito": "split",
   "icons": {
     "16": "assets/icon-16.png",

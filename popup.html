@@ -37,11 +37,18 @@
 
       <section class="actions">
         <div class="quick-actions">
-          <button id="saveAll" class="action-button">
-            <span class="action-button__label">保存所有窗口</span>
-            <span class="action-button__spinner" aria-hidden="true"></span>
-            <span class="action-button__check" aria-hidden="true">✓</span>
-          </button>
+          <div class="save-all">
+            <button id="saveAll" class="action-button">
+              <span class="action-button__label">保存所有窗口</span>
+              <span class="action-button__spinner" aria-hidden="true"></span>
+              <span class="action-button__check" aria-hidden="true">✓</span>
+            </button>
+            <ul id="saveAllMenu" class="save-all__menu" role="menu" hidden>
+              <li role="menuitem" tabindex="0" data-scope="all">全部</li>
+              <li role="menuitem" tabindex="0" data-scope="screen">仅当前屏幕</li>
+              <li role="menuitem" tabindex="0" data-scope="screenVisible">仅当前屏幕（去挡）</li>
+            </ul>
+          </div>
           <button id="saveCurrentWindow" class="action-button">
             <span class="action-button__label">保存当前窗口</span>
             <span class="action-button__spinner" aria-hidden="true"></span>

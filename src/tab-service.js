@@ -4,6 +4,7 @@ import {
   discardTab,
   focusWindow,
   getCurrentWindow,
+  getDisplays,
   getExtensionUrl,
   getExtensionVersion,
   getFromStorage,
@@ -17,6 +18,7 @@ import {
 } from "./chrome-api.js";
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
+import { filterWindowsOnSameDisplay, filterWindowsOnSameDisplayVisible, pickDisplayForWindow } from "./screen-windows.js";
 import { groupTabsByWindow } from "./window-grouping.js";
 import { applyBoundsToCreateData, formatBoundsSummary, isBoundsValidForScreen } from "./window-bounds.js";
 import {
@@ -466,6 +468,152 @@ export async function saveWindowSnapshot(windowId) {
     const summary = createSummary();
     summary.failed = 1;
     summary.errors.push("窗口内没有可保存的标签");
+    return summary;
+  }
+
+  const snapshots = await readSnapshots();
+  snapshots.unshift(snapshot);
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(snapshot);
+}
+
+// Saves only the windows sitting on the same physical display as the user's
+// currently focused window. Requires `chrome.system.display` (Chromium-only);
+// Firefox has no equivalent API, so on Firefox this function degrades to
+// `saveWindowSnapshot(activeWindowId)` — the popup only offers this option
+// when SUPPORTS_SCREEN_INFO is true, so the degraded path is the popup's
+// `仅当前屏幕` button falling back to `仅当前窗口` semantics if the user
+// upgrades mid-session.
+//
+// Other fallbacks (all routed through saveWindowSnapshot so callers see a
+// normal summary shape):
+//   - displays API missing → null
+//   - displays is an empty array (Chrome kiosk / revoked permission)
+//   - activeWindowId not in liveWindows (closed between query and now)
+//   - active window's center outside every display (straddle, off-screen dock)
+export async function saveScreenSnapshot(activeWindowId) {
+  const safeWindowId = Number(activeWindowId);
+  if (!Number.isFinite(safeWindowId)) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const [allTabs, liveWindows, displays] = await Promise.all([
+    queryTabs({}),
+    queryWindows({}).catch(() => []),
+    getDisplays()
+  ]);
+
+  if (!Array.isArray(displays) || displays.length === 0) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const activeWindow = liveWindows.find((win) => win?.id === safeWindowId);
+  if (!activeWindow) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const display = pickDisplayForWindow(activeWindow, displays);
+  if (!display) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const sameDisplayWindows = filterWindowsOnSameDisplay(liveWindows, displays, display);
+  const sameDisplayWindowIds = new Set(
+    sameDisplayWindows.map((w) => w?.id).filter((id) => id != null)
+  );
+  const filteredTabs = allTabs.filter((tab) => sameDisplayWindowIds.has(tab.windowId));
+
+  // Same geometry-preserving pattern as saveSelectedSnapshot: each window
+  // comes from the live list when available, otherwise a stub so the snapshot
+  // still records which windows the tabs came from.
+  const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
+  const windows = [...sameDisplayWindowIds].map((id) => liveById.get(id) || { id });
+
+  const snapshot = captureSnapshot(filteredTabs, windows, Date.now());
+
+  if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("当前屏幕内没有可保存的标签");
+    return summary;
+  }
+
+  const snapshots = await readSnapshots();
+  snapshots.unshift(snapshot);
+  await writeSnapshots(snapshots);
+  return summarizeSnapshot(snapshot);
+}
+
+// Like saveScreenSnapshot but additionally drops "duplicate-bounds"
+// groups on the active display — windows that share their exact bounds
+// with another window on the same screen. They can't all be visible at
+// once, so we assume they're spread across macOS Spaces and keep only the
+// active window's group (or, if the active isn't in such a group, drop
+// the whole group on the assumption it's on a different Space from the
+// user's current one).
+//
+// This is a heuristic — Chrome doesn't expose Space membership, so the
+// only signal we have is "two windows at the same screen position can't
+// both be visible". See filterWindowsOnSameDisplayVisible for the full
+// logic and its limitations.
+//
+// Falls through to saveScreenSnapshot → saveWindowSnapshot on the usual
+// degraded paths (no display API, no windows, etc.).
+export async function saveScreenVisibleSnapshot(activeWindowId) {
+  const safeWindowId = Number(activeWindowId);
+  if (!Number.isFinite(safeWindowId)) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const [allTabs, liveWindows, displays] = await Promise.all([
+    queryTabs({}),
+    queryWindows({}).catch(() => []),
+    getDisplays()
+  ]);
+
+  if (!Array.isArray(displays) || displays.length === 0) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const activeWindow = liveWindows.find((win) => win?.id === safeWindowId);
+  if (!activeWindow) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const display = pickDisplayForWindow(activeWindow, displays);
+  if (!display) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const sameDisplayWindows = filterWindowsOnSameDisplayVisible(
+    liveWindows,
+    displays,
+    display,
+    safeWindowId
+  );
+  const sameDisplayWindowIds = new Set(
+    sameDisplayWindows.map((w) => w?.id).filter((id) => id != null)
+  );
+
+  // The visible filter can legitimately drop every window when the
+  // active window's bounds are duplicated by another (kept) and no other
+  // unique-bound windows exist on the display. In that edge case the
+  // snapshot would have just the active window — fall through to the
+  // current-window save so the user gets at least one window captured.
+  if (sameDisplayWindowIds.size === 0) {
+    return saveWindowSnapshot(safeWindowId);
+  }
+
+  const filteredTabs = allTabs.filter((tab) => sameDisplayWindowIds.has(tab.windowId));
+  const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
+  const windows = [...sameDisplayWindowIds].map((id) => liveById.get(id) || { id });
+
+  const snapshot = captureSnapshot(filteredTabs, windows, Date.now());
+
+  if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
+    const summary = createSummary();
+    summary.failed = 1;
+    summary.errors.push("当前屏幕没有可保存的可见窗口");
     return summary;
   }
 

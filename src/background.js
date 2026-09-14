@@ -24,6 +24,8 @@ import {
   restoreSnapshot,
   saveSnapshot,
   saveSelectedSnapshot,
+  saveScreenSnapshot,
+  saveScreenVisibleSnapshot,
   saveWindowSnapshot
 } from "./tab-service.js";
 import { api, createTab, getExtensionUrl } from "./chrome-api.js";
@@ -87,6 +89,10 @@ async function handleMessage(message) {
       return saveSnapshot();
     case "saveWindowSnapshot":
       return saveWindowSnapshot(message.windowId);
+    case "saveScreenSnapshot":
+      return saveScreenSnapshot(message.activeWindowId);
+    case "saveScreenVisibleSnapshot":
+      return saveScreenVisibleSnapshot(message.activeWindowId);
     case "saveSelectedSnapshot":
       return saveSelectedSnapshot(message.tabIds || []);
     case "listSnapshots":

@@ -1,5 +1,9 @@
 import { formatActionSummary } from "./action-summary.js";
-import { queryLastFocusedActiveTab, sendMessage as sendExtensionMessage } from "./chrome-api.js";
+import {
+  queryLastFocusedActiveTab,
+  sendMessage as sendExtensionMessage,
+  SUPPORTS_SCREEN_INFO
+} from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
@@ -16,6 +20,7 @@ const elements = {
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
   saveAll: document.querySelector("#saveAll"),
+  saveAllMenu: document.querySelector("#saveAllMenu"),
   saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
   snapshotList: document.querySelector("#snapshotList"),
   snapshotCount: document.querySelector("#snapshotCount"),
@@ -27,6 +32,15 @@ init();
 
 async function init() {
   await initTheme();
+  // Reveal the screen-filter menu only when the runtime exposes
+  // `chrome.system.display` — Firefox has no equivalent, so on Firefox the
+  // popup must hide it entirely (no flash on first paint because the HTML
+  // also ships with `hidden`).
+  if (SUPPORTS_SCREEN_INFO) {
+    elements.saveAllMenu.hidden = false;
+    elements.saveAll.setAttribute("aria-haspopup", "true");
+    elements.saveAll.setAttribute("aria-expanded", "false");
+  }
   bindEvents();
   // Snapshots and tab counts load in parallel; whichever resolves first
   // renders its own section.
@@ -72,7 +86,24 @@ function refreshThemeToggle(current) {
 function bindEvents() {
   elements.openDashboard.addEventListener("click", () => sendMessage({ type: "openDashboard" }));
   elements.discardAll.addEventListener("click", () => discardAllTabs());
-  elements.saveAll.addEventListener("click", () => saveAllTabs());
+  // Direct button click runs the "all" action — but the menu may be open
+  // underneath the cursor, so suppress it first. The menu-item click handler
+  // does the same for the `screen` path.
+  if (SUPPORTS_SCREEN_INFO) {
+    elements.saveAll.addEventListener("click", () => {
+      suppressMenuUntilLeave();
+      saveAllTabs();
+    });
+    elements.saveAllMenu.addEventListener("click", handleSaveAllMenuClick);
+    elements.saveAllMenu.addEventListener("keydown", handleSaveAllMenuKeydown);
+    // Clear the post-click suppress flag once the cursor leaves the trigger;
+    // before this, :hover alone would keep the menu open because the cursor
+    // is still over the menu right after the click. mouseleave only fires
+    // when the cursor exits the whole .save-all container (button + menu).
+    elements.saveAll.addEventListener("mouseleave", clearMenuSuppress);
+  } else {
+    elements.saveAll.addEventListener("click", () => saveAllTabs());
+  }
   elements.saveCurrentWindow.addEventListener("click", () => saveCurrentWindowTabs());
   elements.snapshotList.addEventListener("click", handleSnapshotListClick);
   elements.openSnapshotManager.addEventListener("click", () => sendMessage({ type: "openSnapshotManager" }));
@@ -137,16 +168,11 @@ async function discardAllTabs() {
 }
 
 async function saveAllTabs() {
-  setButtonState(elements.saveAll, "loading");
-  try {
-    const meta = await sendMessage({ type: "saveSnapshot" });
-    showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
-    await loadAndRenderSnapshots();
-    setButtonState(elements.saveAll, "success");
-  } catch (error) {
-    setButtonState(elements.saveAll, "idle");
-    throw error;
-  }
+  // Toast is the only feedback channel — no in-button loading/success state,
+  // so the button stays visually stable and the popup stays calm.
+  const meta = await sendMessage({ type: "saveSnapshot" });
+  showToast(`已保存：${meta.label} · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+  await loadAndRenderSnapshots();
 }
 
 async function saveCurrentWindowTabs() {
@@ -170,6 +196,76 @@ async function saveCurrentWindowTabs() {
     setButtonState(elements.saveCurrentWindow, "idle");
     throw error;
   }
+}
+
+// Same host-window resolution as saveCurrentWindowTabs, but the message goes
+// to the screen-filtering path in tab-service.js which captures only the
+// windows sitting on the same physical display as the user's active window.
+// SUPPORTS_SCREEN_INFO is checked before this is even wired up — on Firefox
+// the menu item is hidden, so this only fires on Chromium.
+async function saveCurrentScreenTabs() {
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
+    showToast("无法确定当前窗口。", { type: "error" });
+    return;
+  }
+  const meta = await sendMessage({ type: "saveScreenSnapshot", activeWindowId: tab.windowId });
+  showToast(`已保存：${meta.label} · 当前屏幕 · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+  await loadAndRenderSnapshots();
+}
+
+// Same path as saveCurrentScreenTabs but with the duplicate-bounds
+// heuristic in tab-service.js — drops windows that share their exact
+// bounds with another window on the same display, on the assumption
+// they're on a different macOS Space and therefore hidden. This is a
+// best-effort approximation since Chrome's extension API doesn't expose
+// Space membership.
+async function saveCurrentScreenVisibleTabs() {
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
+    showToast("无法确定当前窗口。", { type: "error" });
+    return;
+  }
+  const meta = await sendMessage({ type: "saveScreenVisibleSnapshot", activeWindowId: tab.windowId });
+  showToast(`已保存：${meta.label} · 当前屏幕（去挡）· ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+  await loadAndRenderSnapshots();
+}
+
+function handleSaveAllMenuClick(event) {
+  const item = event.target.closest('[data-scope]');
+  if (!item) return;
+  // Force-close the menu before dispatching the action. Blurring isn't
+  // enough — the cursor is still over the menu right after the click, so
+  // :hover alone would keep the menu visible until the user moves the
+  // cursor away. clearMenuSuppress (wired to mouseleave) lifts the flag.
+  suppressMenuUntilLeave();
+  document.activeElement?.blur();
+  if (item.dataset.scope === "all") {
+    saveAllTabs();
+  } else if (item.dataset.scope === "screen") {
+    saveCurrentScreenTabs();
+  } else if (item.dataset.scope === "screenVisible") {
+    saveCurrentScreenVisibleTabs();
+  }
+}
+
+function handleSaveAllMenuKeydown(event) {
+  if (event.key === "Escape") {
+    document.activeElement?.blur();
+    suppressMenuUntilLeave();
+    event.preventDefault();
+  }
+}
+
+// Adds the `.save-all--suppress` class which the CSS uses to force the menu
+// shut (overriding :hover/:focus-within). Cleared by mouseleave so a future
+// hover still opens the menu naturally.
+function suppressMenuUntilLeave() {
+  elements.saveAll.classList.add("save-all--suppress");
+}
+
+function clearMenuSuppress() {
+  elements.saveAll.classList.remove("save-all--suppress");
 }
 
 async function loadAndRenderSnapshots() {

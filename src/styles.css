@@ -499,6 +499,95 @@ small {
   animation: action-button-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* Save-all cell: dropdown trigger that wraps the existing #saveAll button.
+ * The menu is hidden by default and revealed by the parent :hover/:focus-within
+ * pattern (mirrors .row-actions). z-index sits above popup content (< 50) but
+ * below the toast host (10000) so save feedback still wins when it fires. */
+.save-all {
+  position: relative;
+  display: flex;
+}
+
+.save-all > .action-button {
+  /* Fill the .quick-actions grid cell — without width:100% the inline-flex
+   * button collapses to its label width and leaves a gap on the right. */
+  width: 100%;
+}
+
+.save-all__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 100%;
+  width: max-content;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+/* Invisible bridge over the 6px gap between button and menu. Without it,
+ * moving the cursor down from the button toward the menu crosses a slice of
+ * page that isn't part of `.save-all`, so `:hover` drops and the menu starts
+ * fading out before the cursor reaches it. The pseudo-element is a child of
+ * the menu, so hovering it counts as hovering the menu AND `.save-all`,
+ * keeping the trigger active throughout the trip. Mirrors the
+ * `.restore-menu::before` pattern in SessionSnapshot's styles.css. */
+.save-all__menu::before {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 0;
+  right: 0;
+  height: 6px;
+}
+
+.save-all:hover .save-all__menu,
+.save-all:focus-within .save-all__menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.save-all__menu li {
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  color: var(--text);
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.save-all__menu li:hover,
+.save-all__menu li:focus {
+  background: var(--accent-soft);
+  color: var(--accent);
+  outline: none;
+}
+
+/* Force the menu shut right after a click / Escape, before the cursor has
+ * left the trigger. Without this, :hover alone would keep the menu open
+ * because the cursor is still over the menu after a click. Cleared by the
+ * mouseleave listener in popup.js, so a subsequent hover still opens it.
+ *
+ * Selector specificity is bumped to (0,3,0) — matching `.save-all:hover
+ * .save-all__menu` exactly — so the cascade order (this rule is written
+ * later) is what makes suppress win when both match. A bare
+ * `.save-all--suppress .save-all__menu` is (0,2,0) and loses to :hover. */
+.save-all.save-all--suppress .save-all__menu {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+}
+
 @keyframes action-button-spin {
   to {
     transform: rotate(360deg);

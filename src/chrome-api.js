@@ -17,6 +17,11 @@ export const api = typeof browser !== "undefined" ? browser : chrome;
 // True when running on the Promise-native namespace (Firefox/Safari).
 const IS_PROMISE_NATIVE = typeof browser !== "undefined";
 
+// True when the runtime exposes `chrome.system.display.getInfo` (Chromium
+// family). Firefox has no equivalent — callers must capability-detect via
+// this constant instead of UA sniffing.
+export const SUPPORTS_SCREEN_INFO = !!api.system?.display?.getInfo;
+
 export function callChrome(fn, ...args) {
   if (IS_PROMISE_NATIVE) {
     return fn(...args);
@@ -84,6 +89,17 @@ export function moveTabs(tabIds, moveProperties) {
 export async function queryWindows(queryInfo = {}) {
   const result = await callChrome(api.windows.getAll.bind(api.windows), queryInfo);
   return result || [];
+}
+
+// Returns the array of connected `chrome.system.display.DisplayInfo` records,
+// or null when the API isn't available (Firefox, or any runtime where
+// `chrome.system.display` doesn't exist). Caller code should treat null as
+// "screen filtering not possible" and fall back to window- or tab-level
+// selection.
+export async function getDisplays() {
+  if (!SUPPORTS_SCREEN_INFO) return null;
+  const result = await callChrome(api.system.display.getInfo.bind(api.system.display));
+  return Array.isArray(result) ? result : [];
 }
 
 export function createBookmark(bookmark) {
