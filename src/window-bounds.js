@@ -135,34 +135,44 @@ export function isBoundsValidForScreen(bounds, screen) {
 //      reach `window.screen` for any reason (it normally can, but we don't
 //      bet the layout on it).
 //
-//   2. The saved layout's bounding box is entirely contained inside the
-//      current screen's work area → return unchanged. The user is already
-//      on a screen that can show the layout; no movement needed.
+//   2. The saved bbox exactly matches the current screen's work area (same
+//      origin AND same size) → return unchanged. Same-screen-restore fast
+//      path; nothing to do.
 //
-//   3. The bbox overflows the screen in any dimension → shrink it to fit.
-//      Uniform scale capped at 1.0 — we never enlarge a window the user
-//      sized on purpose. Side-by-side / stacked arrangements survive
-//      because the bbox is scaled as a unit.
+//   3. Otherwise → scale the bbox to fit edge-to-edge inside the new
+//      screen's work area, then translate it so the bbox's top-left lands
+//      at the screen's work-area top-left. Both up- and down-scaling are
+//      intentional — see the next paragraph.
 //
-//   4. The bbox fits inside the screen but is offset (e.g. saved on a
-//      primary monitor, restoring on a secondary) → translate the bbox
-//      so its top-left lands at the current screen's work-area top-left.
-//      No scaling (the user wants their original window sizes; they can
-//      resize after restore if the new screen has empty space).
+// "fit edge-to-edge, scale both directions":
 //
-// Why "scale down only": scaling UP a window the user deliberately sized
-// is a UX surprise — bigger than they set it. They can resize manually
-// after restore if they want fill-screen windows on a bigger monitor.
-// Scaling DOWN is non-negotiable: an oversized layout on a smaller monitor
-// means overflow that Chrome can only crudely clamp.
+//   - Scale DOWN when the saved layout overflows the new screen in any
+//     dimension (e.g. saved on a 4K external, restoring on a 1080p laptop).
+//     Required to avoid the windows clipping into the taskbar / dock.
+//
+//   - Scale UP when the saved layout is smaller than the new screen. This
+//     matches user intent: a layout that filled screen A should fill
+//     screen B too — not stay small in a corner of a bigger monitor. The
+//     saved `chrome.windows.Window` bounds are typically the work-area
+//     pixels the user sized to on A (not the raw physical screen), so a
+//     bbox that filled A's `availHeight` would otherwise come back on B
+//     at the same pixel height, leaving B's extra work area unused.
+//
+//     Trade-off: a user who deliberately saved a small window in a corner
+//     will see it scaled up to fill B. We accept that — the use case for
+//     this extension is restoring multi-window layouts (side-by-side,
+//     stacked), not single windows. Resizing after restore is one drag.
+//
+// Uniform scale preserves the saved layout's aspect ratio; the smaller
+// axis determines the scale so neither dimension overflows.
 //
 // State-override entries (maximized / fullscreen / minimized) are passed
 // through unchanged. applyBoundsToCreateData honors their `state` field
-// on the new screen — a saved "maximized" window opens maximized on the
-// new screen, no matter how big or small the new monitor is. They're also
-// excluded from the bbox math: a single maximized window that covers the
-// whole old screen would otherwise inflate the bbox and distort the scale
-// for normal windows sitting alongside it.
+// on the new screen, so a saved "maximized" window opens maximized on the
+// new screen no matter its size. They're also excluded from the bbox math:
+// a single maximized window that covers the whole old screen would
+// otherwise inflate the bbox and distort the scale for normal windows
+// sitting alongside it.
 export function adjustBoundsForScreen(savedBoundsList, screen) {
   if (!Array.isArray(savedBoundsList) || savedBoundsList.length === 0) {
     return savedBoundsList;
@@ -215,45 +225,33 @@ export function adjustBoundsForScreen(savedBoundsList, screen) {
   const screenWidth = asPositiveInt(screen.availWidth);
   const screenHeight = asPositiveInt(screen.availHeight);
   if (screenWidth == null || screenHeight == null) return savedBoundsList;
-  const screenRight = screenLeft + screenWidth;
-  const screenBottom = screenTop + screenHeight;
 
-  // Case 2: bbox already fits inside the screen → leave alone. This is the
-  // "user is on the same screen as their saved layout" fast path; it also
-  // catches the "saved on a smaller screen, restoring on a bigger one"
-  // case, where the user expects their original window sizes to come back
-  // untouched (no surprise upscaling).
+  // Fast path: bbox perfectly matches the new screen's work area (same
+  // size, same origin). Nothing to do — the layout already fills the
+  // screen and is at the right starting point.
   if (
-    bboxLeft >= screenLeft &&
-    bboxRight <= screenRight &&
-    bboxTop >= screenTop &&
-    bboxBottom <= screenBottom
+    bboxLeft === screenLeft &&
+    bboxTop === screenTop &&
+    bboxWidth === screenWidth &&
+    bboxHeight === screenHeight
   ) {
     return savedBoundsList;
   }
 
-  // Case 3 / 4: bbox doesn't fit on the new screen. Decide the scale:
-  //
-  //   - Overflow in either axis → shrink. Cap at 1.0 so a bbox that's
-  //     smaller in one dimension but bigger in the other still shrinks
-  //     uniformly (preserves aspect ratio).
-  //   - Fits in both axes → no scaling (case 4), just translate.
-  const overflowsX = bboxWidth > screenWidth;
-  const overflowsY = bboxHeight > screenHeight;
-  const scale = (overflowsX || overflowsY)
-    ? Math.min(1, screenWidth / bboxWidth, screenHeight / bboxHeight)
-    : 1;
-
-  // Nothing to do when both translate and scale are no-ops (bbox already
-  // at screen origin AND scale rounds to 1 — case 4 with no offset).
-  if (scale === 1 && bboxLeft === screenLeft && bboxTop === screenTop) {
+  // Scale to fit edge-to-edge. Uniform: the smaller of the two axis
+  // scales wins, so neither dimension overflows. Both up and down are
+  // allowed; see the function header.
+  const scale = Math.min(screenWidth / bboxWidth, screenHeight / bboxHeight);
+  // Round-to-1 + offset guard: if the bbox already matches the screen's
+  // origin and size (modulo float noise), no work to do.
+  if (Math.abs(scale - 1) < 1e-6 && bboxLeft === screenLeft && bboxTop === screenTop) {
     return savedBoundsList;
   }
 
   // Apply scale + translate. Each window's old (left, top) is expressed
   // relative to the bbox origin, scaled, then offset to land at the
-  // screen's top-left. Width / height scale the same way. State is
-  // preserved verbatim (state-override entries never reach here).
+  // screen's work-area top-left. Width / height scale the same way.
+  // State is preserved verbatim (state-override entries never reach here).
   const result = savedBoundsList.slice();
   for (const { index, bounds } of validEntries) {
     result[index] = {
