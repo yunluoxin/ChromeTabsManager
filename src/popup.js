@@ -19,6 +19,7 @@ const elements = {
   tabCount: document.querySelector("#tabCount"),
   openDashboard: document.querySelector("#openDashboard"),
   discardAll: document.querySelector("#discardAll"),
+  saveAllWrap: document.querySelector(".save-all"),
   saveAll: document.querySelector("#saveAll"),
   saveAllMenu: document.querySelector("#saveAllMenu"),
   saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
@@ -86,21 +87,17 @@ function refreshThemeToggle(current) {
 function bindEvents() {
   elements.openDashboard.addEventListener("click", () => sendMessage({ type: "openDashboard" }));
   elements.discardAll.addEventListener("click", () => discardAllTabs());
-  // Direct button click runs the "all" action — but the menu may be open
-  // underneath the cursor, so suppress it first. The menu-item click handler
-  // does the same for the `screen` path.
+  // Split-button: primary click = save all; hover/focus reveals the screen-
+  // scoped alternatives. After any choice we suppress the menu until the
+  // pointer leaves `.save-all`, otherwise :hover would keep it open.
   if (SUPPORTS_SCREEN_INFO) {
     elements.saveAll.addEventListener("click", () => {
-      suppressMenuUntilLeave();
+      closeSaveAllMenu();
       saveAllTabs();
     });
     elements.saveAllMenu.addEventListener("click", handleSaveAllMenuClick);
     elements.saveAllMenu.addEventListener("keydown", handleSaveAllMenuKeydown);
-    // Clear the post-click suppress flag once the cursor leaves the trigger;
-    // before this, :hover alone would keep the menu open because the cursor
-    // is still over the menu right after the click. mouseleave only fires
-    // when the cursor exits the whole .save-all container (button + menu).
-    elements.saveAll.addEventListener("mouseleave", clearMenuSuppress);
+    elements.saveAllWrap.addEventListener("mouseleave", clearSaveAllMenuSuppress);
   } else {
     elements.saveAll.addEventListener("click", () => saveAllTabs());
   }
@@ -232,14 +229,9 @@ async function saveCurrentScreenVisibleTabs() {
 }
 
 function handleSaveAllMenuClick(event) {
-  const item = event.target.closest('[data-scope]');
+  const item = event.target.closest("[data-scope]");
   if (!item) return;
-  // Force-close the menu before dispatching the action. Blurring isn't
-  // enough — the cursor is still over the menu right after the click, so
-  // :hover alone would keep the menu visible until the user moves the
-  // cursor away. clearMenuSuppress (wired to mouseleave) lifts the flag.
-  suppressMenuUntilLeave();
-  document.activeElement?.blur();
+  closeSaveAllMenu();
   if (item.dataset.scope === "all") {
     saveAllTabs();
   } else if (item.dataset.scope === "screen") {
@@ -251,21 +243,21 @@ function handleSaveAllMenuClick(event) {
 
 function handleSaveAllMenuKeydown(event) {
   if (event.key === "Escape") {
-    document.activeElement?.blur();
-    suppressMenuUntilLeave();
+    closeSaveAllMenu();
     event.preventDefault();
   }
 }
 
-// Adds the `.save-all--suppress` class which the CSS uses to force the menu
-// shut (overriding :hover/:focus-within). Cleared by mouseleave so a future
-// hover still opens the menu naturally.
-function suppressMenuUntilLeave() {
-  elements.saveAll.classList.add("save-all--suppress");
+// Hide the menu immediately after a choice / Escape, even while the cursor
+// is still over `.save-all`. Class goes on the wrapper (not the button) so
+// it matches `.save-all.save-all--suppress` in CSS. Cleared on mouseleave.
+function closeSaveAllMenu() {
+  elements.saveAllWrap.classList.add("save-all--suppress");
+  document.activeElement?.blur();
 }
 
-function clearMenuSuppress() {
-  elements.saveAll.classList.remove("save-all--suppress");
+function clearSaveAllMenuSuppress() {
+  elements.saveAllWrap.classList.remove("save-all--suppress");
 }
 
 async function loadAndRenderSnapshots() {
