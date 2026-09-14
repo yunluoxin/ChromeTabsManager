@@ -249,47 +249,45 @@ test("adjustBoundsForScreen passes through when no screen info is given", () => 
 test("adjustBoundsForScreen scales the layout when the bbox overflows, even if one window is on-screen", () => {
   // W1 sits on SCREEN, but W2 is far off in global coords. The saved
   // layout's bbox (3620×2740) overflows SCREEN in both axes — so the
-  // function scales the WHOLE bbox down to fit, not "leave alone because
-  // W1 happens to peek onto SCREEN". The old anyVisible-based rule did
-  // the latter, which meant W2 stayed stranded off-screen and defeated the
-  // whole point of cross-screen restore.
-  //   scale = min(1, 1920/3620, 1080/2740) = min(1, 0.530, 0.394) ≈ 0.394
+  // function stretches the WHOLE bbox onto the work area, not "leave
+  // alone because W1 happens to peek onto SCREEN". The old anyVisible
+  // rule did the latter, which stranded W2 off-screen.
+  //   scaleX = 1920/3620 ≈ 0.530, scaleY = 1080/2740 ≈ 0.394
   const w1 = { width: 720, height: 800, left: 100, top: 60 };
   const w2 = { width: 720, height: 800, left: 3000, top: 2000 };
   const out = adjustBoundsForScreen([w1, w2], SCREEN);
   assert.deepEqual(out, [
-    { width: 284, height: 315, left: 0, top: 0 },
-    { width: 284, height: 315, left: 1143, top: 765 }
+    { width: 382, height: 315, left: 0, top: 0 },
+    { width: 382, height: 315, left: 1538, top: 765 }
   ]);
 });
 
 test("adjustBoundsForScreen scales and translates to a secondary monitor on the RIGHT", () => {
-  // Two side-by-side windows saved on the primary monitor (bbox 1440×800).
-  // Restoring from SCREEN_RIGHT (availLeft=1920, availWidth=1920,
-  // availHeight=1080) — the new screen is bigger in both dimensions, so
-  // the bbox scales UP to fit edge-to-edge: scale = min(1920/1440,
-  // 1080/800) = 1.333. Each window grows to 960×1067 and lands at
-  // left=1920 / left=2880 — the side-by-side arrangement still fills the
-  // new screen exactly.
+  // Two side-by-side windows saved on the primary (bbox 1440×800).
+  // Restoring on SCREEN_RIGHT — independent axes:
+  //   scaleX = 1920/1440 ≈ 1.333, scaleY = 1080/800 = 1.35
+  // Each window becomes 960×1080 and lands at left=1920 / left=2880 —
+  // fills the new screen edge-to-edge on BOTH axes (uniform scale would
+  // have left height at 1067 and a vertical gap).
   const w1 = { width: 720, height: 800, left: 0, top: 0 };
   const w2 = { width: 720, height: 800, left: 720, top: 0 };
   const out = adjustBoundsForScreen([w1, w2], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 960, height: 1067, left: 1920, top: 0 },
-    { width: 960, height: 1067, left: 2880, top: 0 }
+    { width: 960, height: 1080, left: 1920, top: 0 },
+    { width: 960, height: 1080, left: 2880, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales and translates to a secondary monitor sitting to the LEFT", () => {
   // Mirror of the right-secondary test: saved on the primary at (0..1440),
-  // restoring on SCREEN_LEFT (-1920..0). Same scale as the right case but
-  // translated to the negative availLeft.
+  // restoring on SCREEN_LEFT (-1920..0). Same per-axis scales, translated
+  // to the negative availLeft.
   const w1 = { width: 720, height: 800, left: 0, top: 0 };
   const w2 = { width: 720, height: 800, left: 720, top: 0 };
   const out = adjustBoundsForScreen([w1, w2], SCREEN_LEFT);
   assert.deepEqual(out, [
-    { width: 960, height: 1067, left: -1920, top: 0 },
-    { width: 960, height: 1067, left: -960, top: 0 }
+    { width: 960, height: 1080, left: -1920, top: 0 },
+    { width: 960, height: 1080, left: -960, top: 0 }
   ]);
 });
 
@@ -303,49 +301,60 @@ test("adjustBoundsForScreen anchors the layout to the new screen's top-left, not
   const w2 = { width: 720, height: 800, left: 720, top: 100 };
   const out = adjustBoundsForScreen([w1, w2], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 960, height: 1067, left: 1920, top: 0 },
-    { width: 960, height: 1067, left: 2880, top: 0 }
+    { width: 960, height: 1080, left: 1920, top: 0 },
+    { width: 960, height: 1080, left: 2880, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales DOWN when the saved layout is wider than the new screen", () => {
-  // Saved layout was two 960×900 windows side-by-side on a 1920×1080
-  // monitor. Restoring on a 1280×720 screen — bbox width 1920 > screen
-  // width 1280, so case 3 applies. Uniform scale capped at 1:
-  //   scale = min(1, 1280/1920, 720/900) = min(1, 0.667, 0.8) = 0.667
-  // Each window drops to 640×600; the side-by-side arrangement still
-  // fills the 1280 width exactly.
+  // Saved layout was two 960×900 windows side-by-side (bbox 1920×900).
+  // Restoring on a 1280×720 screen:
+  //   scaleX = 1280/1920 ≈ 0.667, scaleY = 720/900 = 0.8
+  // Each window becomes 640×720 — fills both axes of the small screen.
   const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
   const w1 = { width: 960, height: 900, left: 0, top: 0 };
   const w2 = { width: 960, height: 900, left: 960, top: 0 };
   const out = adjustBoundsForScreen([w1, w2], small);
   assert.deepEqual(out, [
-    { width: 640, height: 600, left: 0, top: 0 },
-    { width: 640, height: 600, left: 640, top: 0 }
+    { width: 640, height: 720, left: 0, top: 0 },
+    { width: 640, height: 720, left: 640, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales DOWN to fit when the bbox overflows only the height axis", () => {
-  // Saved 1200-tall layout on a 1920×1080 screen; restoring on a 1280×720
-  // screen where only the height overflows. The width-only axis would
-  // have scale 1.067 but the height-axis needs 0.6; the smaller wins
-  // (0.6). The window shrinks to 576×720.
+  // Saved 1200-tall layout; restoring on 1280×720. Independent axes:
+  //   scaleX = 1280/960 ≈ 1.333, scaleY = 720/1200 = 0.6
+  // Window stretches to fill the full 1280×720 work area.
   const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
   const w1 = { width: 960, height: 1200, left: 0, top: 0 };
   const out = adjustBoundsForScreen([w1], small);
   assert.deepEqual(out, [
-    { width: 576, height: 720, left: 0, top: 0 }
+    { width: 1280, height: 720, left: 0, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales UP to fill a bigger screen", () => {
-  // The user's complaint case: saved full-height side-by-side on A,
-  // restoring on bigger B. scale = min(2560/1920, 1440/1080) = 1.333.
-  // Each window grows from 960×1080 to 1280×1440 — fills B's work area
-  // edge-to-edge. The side-by-side arrangement is preserved.
+  // Saved full-height side-by-side on A, restoring on bigger B with the
+  // same aspect ratio. scaleX = scaleY = 2560/1920 = 1440/1080 ≈ 1.333.
+  // Each window grows from 960×1080 to 1280×1440 — fills B edge-to-edge.
   const big = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
   const w1 = { width: 960, height: 1080, left: 0, top: 0 };
   const w2 = { width: 960, height: 1080, left: 960, top: 0 };
+  const out = adjustBoundsForScreen([w1, w2], big);
+  assert.deepEqual(out, [
+    { width: 1280, height: 1440, left: 0, top: 0 },
+    { width: 1280, height: 1440, left: 1280, top: 0 }
+  ]);
+});
+
+test("adjustBoundsForScreen stretches height when saved side-by-side is slightly shorter than availHeight", () => {
+  // The real user bug: left/right split that visually filled A, but
+  // chrome.windows reported height a bit under availHeight (1052 vs
+  // 1080). Uniform min(sx,sy) would fill width and leave a vertical
+  // gap on B; independent axes stretch height to the full work area.
+  const big = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
+  const w1 = { width: 960, height: 1052, left: 0, top: 0 };
+  const w2 = { width: 960, height: 1052, left: 960, top: 0 };
   const out = adjustBoundsForScreen([w1, w2], big);
   assert.deepEqual(out, [
     { width: 1280, height: 1440, left: 0, top: 0 },
@@ -357,11 +366,12 @@ test("adjustBoundsForScreen preserves state and size fields when fitting", () =>
   // "normal" state stays attached after scaling/translation —
   // applyBoundsToCreateData uses state="normal" to force Chrome into a
   // normal window (otherwise it can pick whatever default the OS suggests).
-  // Single window's bbox (720×800) → scale = min(1920/720, 1080/800) = 1.35.
+  // Single window bbox 720×800 → scaleX=1920/720, scaleY=1080/800 → fills
+  // SCREEN_RIGHT completely.
   const w1 = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
   const out = adjustBoundsForScreen([w1], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 972, height: 1080, left: 1920, top: 0, state: "normal" }
+    { width: 1920, height: 1080, left: 1920, top: 0, state: "normal" }
   ]);
 });
 
@@ -386,24 +396,22 @@ test("adjustBoundsForScreen leaves state-override windows alone even when they h
   const maxWithGeom = { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 };
   const normal = { width: 720, height: 800, left: 0, top: 0 };
   const out = adjustBoundsForScreen([maxWithGeom, normal], SCREEN_RIGHT);
-  // The maximized entry passes through untouched; the normal entry's bbox
-  // is just its own 720×800 rect, scaled up to fit SCREEN_RIGHT at 1.35
-  // and translated to left=1920.
+  // Maximized entry untouched; normal window's own 720×800 bbox stretches
+  // to fill SCREEN_RIGHT.
   assert.deepEqual(out, [
     { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 },
-    { width: 972, height: 1080, left: 1920, top: 0 }
+    { width: 1920, height: 1080, left: 1920, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales only the geometric subset when some entries are state-override", () => {
-  // Mixed list — the fullscreen window passes through untouched; the normal
-  // window's bbox (just its own 720×800 rect) gets scaled up at 1.35 to fit
-  // and translated to SCREEN_RIGHT's origin.
+  // Mixed list — fullscreen passes through; the normal window's 720×800
+  // bbox stretches to fill SCREEN_RIGHT.
   const normal = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
   const fullscreen = { state: "fullscreen" };
   const out = adjustBoundsForScreen([normal, fullscreen], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 972, height: 1080, left: 1920, top: 0, state: "normal" },
+    { width: 1920, height: 1080, left: 1920, top: 0, state: "normal" },
     fullscreen
   ]);
 });
@@ -428,25 +436,22 @@ test("adjustBoundsForScreen is a no-op only when the saved bbox exactly matches 
   // size as the new screen's work area. This is the "restoring on the
   // same screen with a perfectly matching layout" fast path. Anything off
   // (offset, different size) triggers at least a translate or scale.
-  const w1 = { width: 960, height: 540, left: 0, top: 0 };
-  const w2 = { width: 960, height: 540, left: 960, top: 0 };
+  const w1 = { width: 960, height: 1080, left: 0, top: 0 };
+  const w2 = { width: 960, height: 1080, left: 960, top: 0 };
   // bbox = (0, 0, 1920, 1080) matches SCREEN exactly.
   assert.deepEqual(adjustBoundsForScreen([w1, w2], SCREEN), [w1, w2]);
 });
 
 test("adjustBoundsForScreen scales up to fill when saved bbox is contained but smaller than the new screen", () => {
-  // The old "no-op when on screen" test (now updated): saved bbox is
-  // contained inside SCREEN but offset (bboxLeft=100 vs screenLeft=0) and
-  // slightly smaller than SCREEN. The new behavior scales UP to fill —
-  // the user expects their saved layout to fill the work area of the
-  // screen they're on now, not stay at its smaller saved size.
+  // Saved bbox is contained inside SCREEN but offset and smaller.
+  // Independent axes stretch it to fill the full work area:
+  //   scaleX = 1920/1440 ≈ 1.333, scaleY = 1080/800 = 1.35
+  // → 960×1080 each, starting at (0, 0).
   const w1 = { width: 720, height: 800, left: 100, top: 60 };
   const w2 = { width: 720, height: 800, left: 820, top: 60 };
-  // bbox (100, 60, 1540, 860) → scale = min(1920/1440, 1080/800) = 1.333
-  // Each window grows to 960×1067; translated to start at (0, 0).
   const out = adjustBoundsForScreen([w1, w2], SCREEN);
   assert.deepEqual(out, [
-    { width: 960, height: 1067, left: 0, top: 0 },
-    { width: 960, height: 1067, left: 960, top: 0 }
+    { width: 960, height: 1080, left: 0, top: 0 },
+    { width: 960, height: 1080, left: 960, top: 0 }
   ]);
 });

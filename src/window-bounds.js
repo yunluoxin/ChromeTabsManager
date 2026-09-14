@@ -139,12 +139,13 @@ export function isBoundsValidForScreen(bounds, screen) {
 //      origin AND same size) → return unchanged. Same-screen-restore fast
 //      path; nothing to do.
 //
-//   3. Otherwise → scale the bbox to fit edge-to-edge inside the new
-//      screen's work area, then translate it so the bbox's top-left lands
-//      at the screen's work-area top-left. Both up- and down-scaling are
+//   3. Otherwise → stretch the bbox independently on X and Y so it maps
+//      edge-to-edge onto the new screen's work area (scaleX / scaleY may
+//      differ), then translate so the bbox's top-left lands at the
+//      screen's work-area top-left. Both up- and down-scaling are
 //      intentional — see the next paragraph.
 //
-// "fit edge-to-edge, scale both directions":
+// "fit edge-to-edge, independent axes":
 //
 //   - Scale DOWN when the saved layout overflows the new screen in any
 //     dimension (e.g. saved on a 4K external, restoring on a 1080p laptop).
@@ -163,8 +164,15 @@ export function isBoundsValidForScreen(bounds, screen) {
 //     this extension is restoring multi-window layouts (side-by-side,
 //     stacked), not single windows. Resizing after restore is one drag.
 //
-// Uniform scale preserves the saved layout's aspect ratio; the smaller
-// axis determines the scale so neither dimension overflows.
+// Independent scaleX / scaleY (not a single uniform scale):
+//
+//   Saved window heights rarely equal availHeight exactly (imperfect snap,
+//   a few pixels of OS chrome, etc.), so the bbox aspect ratio often
+//   differs from the target screen. A uniform min(sx, sy) scale would
+//   fill width first and leave a vertical gap — "左右平分了，上下没撑满".
+//   Stretching each axis separately maps the bbox onto the full work
+//   area; relative layout (left/right, top/bottom splits) is preserved,
+//   individual window aspect ratios may change slightly.
 //
 // State-override entries (maximized / fullscreen / minimized) are passed
 // through unchanged. applyBoundsToCreateData honors their `state` field
@@ -238,28 +246,33 @@ export function adjustBoundsForScreen(savedBoundsList, screen) {
     return savedBoundsList;
   }
 
-  // Scale to fit edge-to-edge. Uniform: the smaller of the two axis
-  // scales wins, so neither dimension overflows. Both up and down are
-  // allowed; see the function header.
-  const scale = Math.min(screenWidth / bboxWidth, screenHeight / bboxHeight);
+  // Stretch independently on each axis so the bbox fills the work area
+  // edge-to-edge. Both up and down are allowed; see the function header.
+  const scaleX = screenWidth / bboxWidth;
+  const scaleY = screenHeight / bboxHeight;
   // Round-to-1 + offset guard: if the bbox already matches the screen's
   // origin and size (modulo float noise), no work to do.
-  if (Math.abs(scale - 1) < 1e-6 && bboxLeft === screenLeft && bboxTop === screenTop) {
+  if (
+    Math.abs(scaleX - 1) < 1e-6 &&
+    Math.abs(scaleY - 1) < 1e-6 &&
+    bboxLeft === screenLeft &&
+    bboxTop === screenTop
+  ) {
     return savedBoundsList;
   }
 
   // Apply scale + translate. Each window's old (left, top) is expressed
-  // relative to the bbox origin, scaled, then offset to land at the
-  // screen's work-area top-left. Width / height scale the same way.
-  // State is preserved verbatim (state-override entries never reach here).
+  // relative to the bbox origin, scaled per-axis, then offset to land at
+  // the screen's work-area top-left. State is preserved verbatim
+  // (state-override entries never reach here).
   const result = savedBoundsList.slice();
   for (const { index, bounds } of validEntries) {
     result[index] = {
       ...bounds,
-      left: Math.round(screenLeft + (bounds.left - bboxLeft) * scale),
-      top: Math.round(screenTop + (bounds.top - bboxTop) * scale),
-      width: Math.round(bounds.width * scale),
-      height: Math.round(bounds.height * scale)
+      left: Math.round(screenLeft + (bounds.left - bboxLeft) * scaleX),
+      top: Math.round(screenTop + (bounds.top - bboxTop) * scaleY),
+      width: Math.round(bounds.width * scaleX),
+      height: Math.round(bounds.height * scaleY)
     };
   }
   return result;
