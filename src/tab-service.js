@@ -20,7 +20,7 @@ import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
 import { filterWindowsOnSameDisplay, filterWindowsOnSameDisplayVisible, pickDisplayForWindow } from "./screen-windows.js";
 import { groupTabsByWindow } from "./window-grouping.js";
-import { applyBoundsToCreateData, formatBoundsSummary, isBoundsValidForScreen } from "./window-bounds.js";
+import { adjustBoundsForScreen, applyBoundsToCreateData, formatBoundsSummary } from "./window-bounds.js";
 import {
   buildSnapshotExport,
   captureSnapshot,
@@ -780,7 +780,17 @@ export async function restoreSnapshot(id, { excludeIncognito = false, screen = n
     lazyUrlFor: buildLazyTabUrl,
     excludeIncognito
   });
-  for (const window of plan.windows) {
+  // Pre-compute per-window geometry for the whole plan in one pass, so an
+  // off-screen saved layout gets translated as a unit (preserves a
+  // side-by-side / stacked arrangement instead of piling every window on
+  // the top-left of the new screen). The per-window `isBoundsValidForScreen`
+  // check inside adjustBoundsForScreen also handles the "at least one
+  // window is already visible — leave the layout alone" case.
+  const adjustedBounds = adjustBoundsForScreen(
+    plan.windows.map((w) => w.bounds),
+    screen
+  );
+  for (const [index, window] of plan.windows.entries()) {
     if (!window.urls || window.urls.length === 0) {
       summary.failed += 1;
       summary.errors.push("空窗口已跳过");
@@ -793,15 +803,12 @@ export async function restoreSnapshot(id, { excludeIncognito = false, screen = n
       // access, which we surface as a failure below.
       const createData = { url: window.urls };
       if (window.incognito) createData.incognito = true;
-      // Geometry is best-effort: if the window would land off-screen (e.g.
-      // the user's monitor layout changed since the snapshot was saved), we
-      // silently drop the bounds and let Chrome pick a default. state and
-      // width/height are mutually exclusive in the WebExtensions spec, so
-      // applyBoundsToCreateData handles that internally.
-      const usableBounds = isBoundsValidForScreen(window.bounds, screen)
-        ? window.bounds
-        : null;
-      applyBoundsToCreateData(createData, usableBounds);
+      // Geometry: adjustedBounds[i] is the saved bounds possibly translated
+      // to land on the current screen, or null when there's no captured
+      // geometry (old snapshots, maximized / fullscreen windows). applyBoundsToCreateData
+      // is a no-op on null and respects the state-vs-geometry exclusivity
+      // rule from the WebExtensions spec.
+      applyBoundsToCreateData(createData, adjustedBounds[index]);
       await createWindow(createData);
       summary.succeeded += 1;
     } catch (error) {
@@ -871,10 +878,14 @@ export async function openSnapshotWindow(snapshotId, windowIndex, { screen = nul
   try {
     const createData = { url: entry.urls };
     if (entry.incognito) createData.incognito = true;
-    const usableBounds = isBoundsValidForScreen(entry.bounds, screen)
-      ? entry.bounds
-      : null;
-    applyBoundsToCreateData(createData, usableBounds);
+    // Single window out of a multi-window snapshot — there's no layout to
+    // preserve relative to other windows, but we still want this window to
+    // land somewhere visible on the current display when the saved bounds
+    // are off-screen. adjustBoundsForScreen handles both the passthrough
+    // (bounds already on-screen / no screen info) and translation (bounds
+    // entirely off-screen) cases for a single-element array.
+    const [adjusted] = adjustBoundsForScreen([entry.bounds], screen);
+    applyBoundsToCreateData(createData, adjusted);
     await createWindow(createData);
     summary.succeeded = 1;
   } catch (error) {

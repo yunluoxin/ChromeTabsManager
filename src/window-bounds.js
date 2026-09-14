@@ -117,6 +117,109 @@ export function isBoundsValidForScreen(bounds, screen) {
   return overlapWidth >= MIN_VISIBLE_PX && overlapHeight >= MIN_VISIBLE_PX;
 }
 
+// Translate a snapshot's window bounds so the saved layout lands somewhere
+// visible on the user's current display. Pure helper, no Chrome API access.
+//
+// `savedBoundsList` is the array of bounds captured from the snapshot
+// (window.bounds, sanitized). `screen` is the work area reported by
+// window.screen from the calling extension page
+// ({ availLeft, availTop, availWidth, availHeight }) — the same shape
+// isBoundsValidForScreen takes.
+//
+// Behavior, in order:
+//
+//   1. Empty/non-array input, or no `screen` info → return as-is. Same
+//      passthrough isBoundsValidForScreen uses; we trust Chrome/Firefox to
+//      clamp impossible positions when we can't compute them ourselves.
+//      This is also the path Firefox falls into when an extension page can't
+//      reach `window.screen` for any reason (it normally can, but we don't
+//      bet the layout on it).
+//
+//   2. At least one window already has ≥ MIN_VISIBLE_PX overlap with the
+//      current screen → return unchanged. We don't move windows out from
+//      under a layout that's *partially* visible — e.g. one window on the
+//      left edge of a shared screen straddling two displays. Moving the
+//      whole layout in that case would yank a working window off-screen.
+//
+//   3. Every window is entirely off-screen on the current display → translate
+//      the entire layout as a unit. The saved layout's bounding box is
+//      shifted so its top-left lands at the current screen's work-area
+//      top-left; every window moves by the same (dx, dy). Width, height,
+//      and state are preserved — only left/top change. Translating the whole
+//      layout (instead of each window independently to (availLeft, availTop))
+//      keeps a side-by-side or stacked arrangement intact on the new screen;
+//      independent translation would pile every window on the top-left
+//      corner of the new display.
+//
+//      Limitation: if the saved bounding box is wider/taller than the new
+//      screen, translated windows may extend past the new screen's edges.
+//      We don't scale — Chrome/Firefox will clamp the overflow, and the
+//      user can re-arrange if they want tighter fit. Scaling risks shrinking
+//      a window the user sized on purpose, and "what's the right scale
+//      factor?" has no good default answer.
+//
+// Bounds missing any of {width, height, left, top} are passed through
+// unchanged — those are maximized / fullscreen / minimized windows whose
+// geometry Chrome ignores anyway, and translating them would just be noise.
+export function adjustBoundsForScreen(savedBoundsList, screen) {
+  if (!Array.isArray(savedBoundsList) || savedBoundsList.length === 0) {
+    return savedBoundsList;
+  }
+  // No usable screen info → passthrough, same fallback isBoundsValidForScreen uses.
+  if (!screen || typeof screen !== "object") {
+    return savedBoundsList;
+  }
+
+  // Collect entries with full geometry, remembering their original index so
+  // we can rebuild the output array in the same order.
+  const validEntries = [];
+  for (let i = 0; i < savedBoundsList.length; i += 1) {
+    const b = savedBoundsList[i];
+    if (
+      b && typeof b === "object" &&
+      asPositiveInt(b.width) != null &&
+      asPositiveInt(b.height) != null &&
+      asInt(b.left) != null &&
+      asInt(b.top) != null
+    ) {
+      validEntries.push({ index: i, bounds: b });
+    }
+  }
+  if (validEntries.length === 0) return savedBoundsList;
+
+  // If anything is already visible, leave the whole layout alone. Mixing
+  // "shifted" and "un-shifted" windows would desync their relative positions.
+  const anyVisible = validEntries.some(({ bounds }) => isBoundsValidForScreen(bounds, screen));
+  if (anyVisible) return savedBoundsList;
+
+  const screenLeft = asInt(screen.availLeft) ?? 0;
+  const screenTop = asInt(screen.availTop) ?? 0;
+
+  // Bounding box of the saved layout, in global screen coordinates.
+  let minLeft = Infinity;
+  let minTop = Infinity;
+  for (const { bounds } of validEntries) {
+    if (bounds.left < minLeft) minLeft = bounds.left;
+    if (bounds.top < minTop) minTop = bounds.top;
+  }
+  if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return savedBoundsList;
+
+  const deltaX = screenLeft - minLeft;
+  const deltaY = screenTop - minTop;
+  if (deltaX === 0 && deltaY === 0) return savedBoundsList;
+
+  // Build the translated list — copy-on-write so callers don't see mutations.
+  const result = savedBoundsList.slice();
+  for (const { index, bounds } of validEntries) {
+    result[index] = {
+      ...bounds,
+      left: bounds.left + deltaX,
+      top: bounds.top + deltaY
+    };
+  }
+  return result;
+}
+
 // Project a captured bounds onto a chrome.windows.create / browser.windows.create
 // payload. Mutates and returns createData for ergonomic chaining.
 //
