@@ -117,8 +117,8 @@ export function isBoundsValidForScreen(bounds, screen) {
   return overlapWidth >= MIN_VISIBLE_PX && overlapHeight >= MIN_VISIBLE_PX;
 }
 
-// Translate a snapshot's window bounds so the saved layout lands somewhere
-// visible on the user's current display. Pure helper, no Chrome API access.
+// Adjust a snapshot's window bounds so the saved layout fits the user's
+// current display. Pure helper, no Chrome API access.
 //
 // `savedBoundsList` is the array of bounds captured from the snapshot
 // (window.bounds, sanitized). `screen` is the work area reported by
@@ -135,48 +135,51 @@ export function isBoundsValidForScreen(bounds, screen) {
 //      reach `window.screen` for any reason (it normally can, but we don't
 //      bet the layout on it).
 //
-//   2. At least one window already has ≥ MIN_VISIBLE_PX overlap with the
-//      current screen → return unchanged. We don't move windows out from
-//      under a layout that's *partially* visible — e.g. one window on the
-//      left edge of a shared screen straddling two displays. Moving the
-//      whole layout in that case would yank a working window off-screen.
+//   2. The saved layout's bounding box is entirely contained inside the
+//      current screen's work area → return unchanged. The user is already
+//      on a screen that can show the layout; no movement needed.
 //
-//   3. Every window is entirely off-screen on the current display → translate
-//      the entire layout as a unit. The saved layout's bounding box is
-//      shifted so its top-left lands at the current screen's work-area
-//      top-left; every window moves by the same (dx, dy). Width, height,
-//      and state are preserved — only left/top change. Translating the whole
-//      layout (instead of each window independently to (availLeft, availTop))
-//      keeps a side-by-side or stacked arrangement intact on the new screen;
-//      independent translation would pile every window on the top-left
-//      corner of the new display.
+//   3. The bbox overflows the screen in any dimension → shrink it to fit.
+//      Uniform scale capped at 1.0 — we never enlarge a window the user
+//      sized on purpose. Side-by-side / stacked arrangements survive
+//      because the bbox is scaled as a unit.
 //
-//      Limitation: if the saved bounding box is wider/taller than the new
-//      screen, translated windows may extend past the new screen's edges.
-//      We don't scale — Chrome/Firefox will clamp the overflow, and the
-//      user can re-arrange if they want tighter fit. Scaling risks shrinking
-//      a window the user sized on purpose, and "what's the right scale
-//      factor?" has no good default answer.
+//   4. The bbox fits inside the screen but is offset (e.g. saved on a
+//      primary monitor, restoring on a secondary) → translate the bbox
+//      so its top-left lands at the current screen's work-area top-left.
+//      No scaling (the user wants their original window sizes; they can
+//      resize after restore if the new screen has empty space).
 //
-// Bounds missing any of {width, height, left, top} are passed through
-// unchanged — those are maximized / fullscreen / minimized windows whose
-// geometry Chrome ignores anyway, and translating them would just be noise.
+// Why "scale down only": scaling UP a window the user deliberately sized
+// is a UX surprise — bigger than they set it. They can resize manually
+// after restore if they want fill-screen windows on a bigger monitor.
+// Scaling DOWN is non-negotiable: an oversized layout on a smaller monitor
+// means overflow that Chrome can only crudely clamp.
+//
+// State-override entries (maximized / fullscreen / minimized) are passed
+// through unchanged. applyBoundsToCreateData honors their `state` field
+// on the new screen — a saved "maximized" window opens maximized on the
+// new screen, no matter how big or small the new monitor is. They're also
+// excluded from the bbox math: a single maximized window that covers the
+// whole old screen would otherwise inflate the bbox and distort the scale
+// for normal windows sitting alongside it.
 export function adjustBoundsForScreen(savedBoundsList, screen) {
   if (!Array.isArray(savedBoundsList) || savedBoundsList.length === 0) {
     return savedBoundsList;
   }
-  // No usable screen info → passthrough, same fallback isBoundsValidForScreen uses.
   if (!screen || typeof screen !== "object") {
     return savedBoundsList;
   }
 
-  // Collect entries with full geometry, remembering their original index so
-  // we can rebuild the output array in the same order.
+  // Collect entries that are normal-state AND have full geometry. State-
+  // override windows (maximized / fullscreen / minimized) pass through
+  // unchanged — see the function header for why.
   const validEntries = [];
   for (let i = 0; i < savedBoundsList.length; i += 1) {
     const b = savedBoundsList[i];
     if (
       b && typeof b === "object" &&
+      !STATE_OVERRIDES_GEOMETRY.has(b.state) &&
       asPositiveInt(b.width) != null &&
       asPositiveInt(b.height) != null &&
       asInt(b.left) != null &&
@@ -187,34 +190,78 @@ export function adjustBoundsForScreen(savedBoundsList, screen) {
   }
   if (validEntries.length === 0) return savedBoundsList;
 
-  // If anything is already visible, leave the whole layout alone. Mixing
-  // "shifted" and "un-shifted" windows would desync their relative positions.
-  const anyVisible = validEntries.some(({ bounds }) => isBoundsValidForScreen(bounds, screen));
-  if (anyVisible) return savedBoundsList;
+  // Bounding box of the saved normal-state layout, in global screen coords.
+  let bboxLeft = Infinity;
+  let bboxTop = Infinity;
+  let bboxRight = -Infinity;
+  let bboxBottom = -Infinity;
+  for (const { bounds } of validEntries) {
+    if (bounds.left < bboxLeft) bboxLeft = bounds.left;
+    if (bounds.top < bboxTop) bboxTop = bounds.top;
+    const right = bounds.left + bounds.width;
+    const bottom = bounds.top + bounds.height;
+    if (right > bboxRight) bboxRight = right;
+    if (bottom > bboxBottom) bboxBottom = bottom;
+  }
+  if (!Number.isFinite(bboxLeft) || !Number.isFinite(bboxRight) ||
+      bboxRight <= bboxLeft || bboxBottom <= bboxTop) {
+    return savedBoundsList;
+  }
+  const bboxWidth = bboxRight - bboxLeft;
+  const bboxHeight = bboxBottom - bboxTop;
 
   const screenLeft = asInt(screen.availLeft) ?? 0;
   const screenTop = asInt(screen.availTop) ?? 0;
+  const screenWidth = asPositiveInt(screen.availWidth);
+  const screenHeight = asPositiveInt(screen.availHeight);
+  if (screenWidth == null || screenHeight == null) return savedBoundsList;
+  const screenRight = screenLeft + screenWidth;
+  const screenBottom = screenTop + screenHeight;
 
-  // Bounding box of the saved layout, in global screen coordinates.
-  let minLeft = Infinity;
-  let minTop = Infinity;
-  for (const { bounds } of validEntries) {
-    if (bounds.left < minLeft) minLeft = bounds.left;
-    if (bounds.top < minTop) minTop = bounds.top;
+  // Case 2: bbox already fits inside the screen → leave alone. This is the
+  // "user is on the same screen as their saved layout" fast path; it also
+  // catches the "saved on a smaller screen, restoring on a bigger one"
+  // case, where the user expects their original window sizes to come back
+  // untouched (no surprise upscaling).
+  if (
+    bboxLeft >= screenLeft &&
+    bboxRight <= screenRight &&
+    bboxTop >= screenTop &&
+    bboxBottom <= screenBottom
+  ) {
+    return savedBoundsList;
   }
-  if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return savedBoundsList;
 
-  const deltaX = screenLeft - minLeft;
-  const deltaY = screenTop - minTop;
-  if (deltaX === 0 && deltaY === 0) return savedBoundsList;
+  // Case 3 / 4: bbox doesn't fit on the new screen. Decide the scale:
+  //
+  //   - Overflow in either axis → shrink. Cap at 1.0 so a bbox that's
+  //     smaller in one dimension but bigger in the other still shrinks
+  //     uniformly (preserves aspect ratio).
+  //   - Fits in both axes → no scaling (case 4), just translate.
+  const overflowsX = bboxWidth > screenWidth;
+  const overflowsY = bboxHeight > screenHeight;
+  const scale = (overflowsX || overflowsY)
+    ? Math.min(1, screenWidth / bboxWidth, screenHeight / bboxHeight)
+    : 1;
 
-  // Build the translated list — copy-on-write so callers don't see mutations.
+  // Nothing to do when both translate and scale are no-ops (bbox already
+  // at screen origin AND scale rounds to 1 — case 4 with no offset).
+  if (scale === 1 && bboxLeft === screenLeft && bboxTop === screenTop) {
+    return savedBoundsList;
+  }
+
+  // Apply scale + translate. Each window's old (left, top) is expressed
+  // relative to the bbox origin, scaled, then offset to land at the
+  // screen's top-left. Width / height scale the same way. State is
+  // preserved verbatim (state-override entries never reach here).
   const result = savedBoundsList.slice();
   for (const { index, bounds } of validEntries) {
     result[index] = {
       ...bounds,
-      left: bounds.left + deltaX,
-      top: bounds.top + deltaY
+      left: Math.round(screenLeft + (bounds.left - bboxLeft) * scale),
+      top: Math.round(screenTop + (bounds.top - bboxTop) * scale),
+      width: Math.round(bounds.width * scale),
+      height: Math.round(bounds.height * scale)
     };
   }
   return result;
