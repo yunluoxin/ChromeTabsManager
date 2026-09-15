@@ -321,15 +321,16 @@ test("adjustBoundsForScreen scales DOWN when the saved layout is wider than the 
   ]);
 });
 
-test("adjustBoundsForScreen scales DOWN to fit when the bbox overflows only the height axis", () => {
-  // Saved 1200-tall layout; restoring on 1280×720. Independent axes:
-  //   scaleX = 1280/960 ≈ 1.333, scaleY = 720/1200 = 0.6
-  // Window stretches to fill the full 1280×720 work area.
+test("adjustBoundsForScreen scales DOWN a single oversized window without stretching the other axis", () => {
+  // Single 960×1200 window on a 1280×720 screen. Uniform scale capped at 1:
+  //   scale = min(1, 1280/960, 720/1200) = 0.6 → 576×720.
+  // Must NOT stretch width up to 1280 (that was the old multi-window
+  // edge-to-edge path leaking into single-window restores).
   const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
   const w1 = { width: 960, height: 1200, left: 0, top: 0 };
   const out = adjustBoundsForScreen([w1], small);
   assert.deepEqual(out, [
-    { width: 1280, height: 720, left: 0, top: 0 }
+    { width: 576, height: 720, left: 0, top: 0 }
   ]);
 });
 
@@ -362,17 +363,24 @@ test("adjustBoundsForScreen stretches height when saved side-by-side is slightly
   ]);
 });
 
-test("adjustBoundsForScreen preserves state and size fields when fitting", () => {
-  // "normal" state stays attached after scaling/translation —
-  // applyBoundsToCreateData uses state="normal" to force Chrome into a
-  // normal window (otherwise it can pick whatever default the OS suggests).
-  // Single window bbox 720×800 → scaleX=1920/720, scaleY=1080/800 → fills
-  // SCREEN_RIGHT completely.
+test("adjustBoundsForScreen keeps single-window size when translating to another screen", () => {
+  // Single-window snapshots (dashboard「保存本组」、popup「保存当前窗口」)
+  // must NOT stretch to fill the target screen — that turns a half-screen
+  // window into a full-screen one and looks like "maximized". Off-screen
+  // single windows only translate; size and state stay put.
   const w1 = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
   const out = adjustBoundsForScreen([w1], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 1920, height: 1080, left: 1920, top: 0, state: "normal" }
+    { width: 720, height: 800, left: 1920, top: 0, state: "normal" }
   ]);
+});
+
+test("adjustBoundsForScreen does not stretch a single half-screen window on the same screen", () => {
+  // Regression: saved left-half window on the same display must restore
+  // at half width. The old edge-to-edge scale treated the half as the
+  // full bbox and blew it up to availWidth (= looks maximized).
+  const half = { width: 960, height: 1080, left: 0, top: 0, state: "normal" };
+  assert.deepEqual(adjustBoundsForScreen([half], SCREEN), [half]);
 });
 
 test("adjustBoundsForScreen passes maximized / fullscreen / minimized bounds through unchanged", () => {
@@ -392,26 +400,25 @@ test("adjustBoundsForScreen leaves state-override windows alone even when they h
   // Chrome still reports width/height/left/top for a maximized window — but
   // those are pixel values from the original screen. Including them in the
   // bbox would inflate the bbox to the full original screen and distort the
-  // scale for the normal windows sitting alongside.
+  // scale for the normal windows sitting alongside. With only one normal
+  // geometric entry, the single-window path applies: translate, don't stretch.
   const maxWithGeom = { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 };
   const normal = { width: 720, height: 800, left: 0, top: 0 };
   const out = adjustBoundsForScreen([maxWithGeom, normal], SCREEN_RIGHT);
-  // Maximized entry untouched; normal window's own 720×800 bbox stretches
-  // to fill SCREEN_RIGHT.
   assert.deepEqual(out, [
     { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 },
-    { width: 1920, height: 1080, left: 1920, top: 0 }
+    { width: 720, height: 800, left: 1920, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen scales only the geometric subset when some entries are state-override", () => {
-  // Mixed list — fullscreen passes through; the normal window's 720×800
-  // bbox stretches to fill SCREEN_RIGHT.
+  // Mixed list — fullscreen passes through; the lone normal window only
+  // translates (single-window path), keeping its saved size.
   const normal = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
   const fullscreen = { state: "fullscreen" };
   const out = adjustBoundsForScreen([normal, fullscreen], SCREEN_RIGHT);
   assert.deepEqual(out, [
-    { width: 1920, height: 1080, left: 1920, top: 0, state: "normal" },
+    { width: 720, height: 800, left: 1920, top: 0, state: "normal" },
     fullscreen
   ]);
 });

@@ -117,6 +117,52 @@ export function isBoundsValidForScreen(bounds, screen) {
   return overlapWidth >= MIN_VISIBLE_PX && overlapHeight >= MIN_VISIBLE_PX;
 }
 
+// Single-window restore: keep saved size when it fits. Never scale UP
+// (that turns half-screen saves into full-screen). Scale DOWN uniformly
+// only when the window itself is larger than the work area; then clamp
+// position so the window lands on-screen.
+function adjustSingleWindowBounds(savedBoundsList, entry, screen) {
+  const { index, bounds } = entry;
+  const screenLeft = asInt(screen.availLeft) ?? 0;
+  const screenTop = asInt(screen.availTop) ?? 0;
+  const screenWidth = asPositiveInt(screen.availWidth);
+  const screenHeight = asPositiveInt(screen.availHeight);
+  if (screenWidth == null || screenHeight == null) return savedBoundsList;
+
+  // Cap at 1: shrink to fit if oversized, never enlarge a deliberate size.
+  const scale = Math.min(1, screenWidth / bounds.width, screenHeight / bounds.height);
+  const width = Math.round(bounds.width * scale);
+  const height = Math.round(bounds.height * scale);
+  let left = bounds.left;
+  let top = bounds.top;
+
+  const screenRight = screenLeft + screenWidth;
+  const screenBottom = screenTop + screenHeight;
+  if (left + width > screenRight) left = screenRight - width;
+  if (top + height > screenBottom) top = screenBottom - height;
+  if (left < screenLeft) left = screenLeft;
+  if (top < screenTop) top = screenTop;
+
+  if (
+    width === bounds.width &&
+    height === bounds.height &&
+    left === bounds.left &&
+    top === bounds.top
+  ) {
+    return savedBoundsList;
+  }
+
+  const result = savedBoundsList.slice();
+  result[index] = {
+    ...bounds,
+    width,
+    height,
+    left: Math.round(left),
+    top: Math.round(top)
+  };
+  return result;
+}
+
 // Adjust a snapshot's window bounds so the saved layout fits the user's
 // current display. Pure helper, no Chrome API access.
 //
@@ -159,10 +205,10 @@ export function isBoundsValidForScreen(bounds, screen) {
 //     bbox that filled A's `availHeight` would otherwise come back on B
 //     at the same pixel height, leaving B's extra work area unused.
 //
-//     Trade-off: a user who deliberately saved a small window in a corner
-//     will see it scaled up to fill B. We accept that — the use case for
-//     this extension is restoring multi-window layouts (side-by-side,
-//     stacked), not single windows. Resizing after restore is one drag.
+//     Scope: scale-up applies only to multi-window layouts (2+ normal-
+//     geometry entries). A single half-screen window (dashboard「保存本组」、
+//     popup「保存当前窗口」) must keep its saved size — stretching it to
+//     fill availWidth looks like "maximized" and destroys the capture.
 //
 // Independent scaleX / scaleY (not a single uniform scale):
 //
@@ -207,6 +253,12 @@ export function adjustBoundsForScreen(savedBoundsList, screen) {
     }
   }
   if (validEntries.length === 0) return savedBoundsList;
+
+  // Single normal-geometry window: never stretch to fill the screen.
+  // Preserve saved size; only translate into the work area when off-screen.
+  if (validEntries.length === 1) {
+    return adjustSingleWindowBounds(savedBoundsList, validEntries[0], screen);
+  }
 
   // Bounding box of the saved normal-state layout, in global screen coords.
   let bboxLeft = Infinity;
