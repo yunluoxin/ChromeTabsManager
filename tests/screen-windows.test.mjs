@@ -1,13 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  attachScreenToWindows,
   centerOf,
   filterWindowsOnSameDisplay,
   filterWindowsOnSameDisplayVisible,
   isInside,
   pickDisplayForPoint,
   pickDisplayForWindow,
-  sameBoundsKey
+  sameBoundsKey,
+  screenFromDisplay
 } from "../src/screen-windows.js";
 
 test("centerOf computes the geometric midpoint", () => {
@@ -394,4 +396,45 @@ test("filterWindowsOnSameDisplayVisible returns [] when display is null", () => 
     filterWindowsOnSameDisplayVisible(windows, [], null, 1),
     []
   );
+});
+
+test("screenFromDisplay maps workArea onto avail* shape", () => {
+  assert.deepEqual(
+    screenFromDisplay({ workArea: { left: 1920, top: 0, width: 1440, height: 900 } }),
+    { availLeft: 1920, availTop: 0, availWidth: 1440, availHeight: 900 }
+  );
+  assert.equal(screenFromDisplay(null), null);
+  assert.equal(screenFromDisplay({ workArea: { left: 0, top: 0, width: 100 } }), null);
+});
+
+test("attachScreenToWindows stamps each window with its display workArea", () => {
+  const displays = [
+    { id: "primary", workArea: { left: 0, top: 0, width: 1920, height: 1080 } },
+    { id: "secondary", workArea: { left: 1920, top: 0, width: 1920, height: 1080 } }
+  ];
+  const windows = [
+    { id: 1, left: 100, top: 100, width: 800, height: 600 },
+    { id: 2, left: 2000, top: 100, width: 800, height: 600 }
+  ];
+  const out = attachScreenToWindows(windows, displays);
+  assert.deepEqual(out[0].screen, {
+    availLeft: 0,
+    availTop: 0,
+    availWidth: 1920,
+    availHeight: 1080
+  });
+  assert.deepEqual(out[1].screen, {
+    availLeft: 1920,
+    availTop: 0,
+    availWidth: 1920,
+    availHeight: 1080
+  });
+  // Input not mutated.
+  assert.equal(windows[0].screen, undefined);
+});
+
+test("attachScreenToWindows is a no-op without displays", () => {
+  const windows = [{ id: 1, left: 0, top: 0, width: 100, height: 100 }];
+  assert.equal(attachScreenToWindows(windows, null), windows);
+  assert.equal(attachScreenToWindows(windows, []), windows);
 });

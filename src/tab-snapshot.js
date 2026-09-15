@@ -31,7 +31,7 @@
 // decide which windows must skip lazy URLs.
 
 import { isSystemUrl } from "./system-urls.js";
-import { sanitizeCapturedBounds } from "./window-bounds.js";
+import { sanitizeCapturedBounds, sanitizeCapturedScreen } from "./window-bounds.js";
 
 export function generateSnapshotId(createdAt) {
   return `snap-${createdAt}`;
@@ -143,11 +143,15 @@ export function captureSnapshot(tabs, windows, createdAt = Date.now()) {
       ? windows.find((win) => win && win.id === wid)
       : null;
     const bounds = sanitizeCapturedBounds(liveWindow);
+    // Prefer an explicit `screen` already attached by attachScreenToWindows
+    // (Chromium); fall back to nothing when the display API is unavailable.
+    const screen = sanitizeCapturedScreen(liveWindow?.screen);
     capturedWindows.push({
       tabs: ordered.map(pickTab),
       activeIndex: activeIndex >= 0 ? activeIndex : 0,
       incognito: Boolean(incognito),
-      ...(bounds ? { bounds } : {})
+      ...(bounds ? { bounds } : {}),
+      ...(screen ? { screen } : {})
     });
     tabCount += ordered.length;
   }
@@ -188,7 +192,12 @@ export function planRestore(snapshot, { lazyUrlFor, excludeIncognito = false, om
           : ordered.map((tab, position) =>
               position === 0 || !lazyUrlFor ? tab.url : lazyUrlFor(tab)
             );
-        return { urls, incognito: Boolean(window.incognito), bounds: window.bounds ?? null };
+        return {
+          urls,
+          incognito: Boolean(window.incognito),
+          bounds: window.bounds ?? null,
+          screen: window.screen ?? null
+        };
       })
   };
 }
@@ -313,11 +322,13 @@ export function parseSnapshotImport(json, { existingIds = new Set(), createdAt =
       // the key (mirrors captureSnapshot's "only attach when something
       // usable" behavior).
       const bounds = sanitizeCapturedBounds(rawWindow?.bounds);
+      const screen = sanitizeCapturedScreen(rawWindow?.screen);
       windows.push({
         tabs,
         activeIndex,
         incognito: Boolean(incognito),
-        ...(bounds ? { bounds } : {})
+        ...(bounds ? { bounds } : {}),
+        ...(screen ? { screen } : {})
       });
       tabCount += tabs.length;
     }

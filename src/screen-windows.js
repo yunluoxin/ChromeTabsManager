@@ -99,6 +99,42 @@ export function pickDisplayForWindow(window, displays) {
   return pickDisplayForPoint(centerOf(window), displays);
 }
 
+// Map a chrome.system.display workArea ({ left, top, width, height }) onto
+// the avail* shape used by window.screen / snapshot restore. Returns null
+// when any field is missing.
+export function screenFromDisplay(display) {
+  const wa = display?.workArea;
+  if (!wa || typeof wa !== "object") return null;
+  if (
+    typeof wa.left !== "number" ||
+    typeof wa.top !== "number" ||
+    typeof wa.width !== "number" ||
+    typeof wa.height !== "number"
+  ) {
+    return null;
+  }
+  return {
+    availLeft: wa.left,
+    availTop: wa.top,
+    availWidth: wa.width,
+    availHeight: wa.height
+  };
+}
+
+// Attach each window's display workArea as `screen` (avail* shape) so
+// captureSnapshot can persist it. Windows with no matching display are left
+// unchanged. Returns a new array; does not mutate the input.
+export function attachScreenToWindows(windows, displays) {
+  if (!Array.isArray(windows)) return windows;
+  if (!Array.isArray(displays) || displays.length === 0) return windows;
+  return windows.map((win) => {
+    if (!win) return win;
+    const screen = screenFromDisplay(pickDisplayForWindow(win, displays));
+    if (!screen) return win;
+    return { ...win, screen };
+  });
+}
+
 // Windows whose centers also fall on `display`. Returns [] when `display` is
 // null/undefined (degraded-mode signal for the caller to fall back).
 export function filterWindowsOnSameDisplay(windows, displays, display) {

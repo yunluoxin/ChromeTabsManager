@@ -363,6 +363,39 @@ test("captureSnapshot records window bounds from the windows list", () => {
   });
 });
 
+test("captureSnapshot records per-window screen work area when attached", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(
+    tabs,
+    [{
+      id: 11,
+      top: 50,
+      left: 100,
+      width: 1440,
+      height: 900,
+      state: "normal",
+      screen: { availLeft: 0, availTop: 25, availWidth: 1920, availHeight: 1055 }
+    }],
+    1000
+  );
+  assert.deepEqual(snap.windows[0].screen, {
+    availLeft: 0,
+    availTop: 25,
+    availWidth: 1920,
+    availHeight: 1055
+  });
+});
+
+test("captureSnapshot omits screen when none is attached", () => {
+  const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
+  const snap = captureSnapshot(
+    tabs,
+    [{ id: 11, top: 0, left: 0, width: 800, height: 600 }],
+    1000
+  );
+  assert.equal(snap.windows[0].screen, undefined);
+});
+
 test("captureSnapshot omits bounds when no geometry is available", () => {
   const tabs = [{ windowId: 11, index: 0, url: "https://a.com", active: true }];
   // Stub window with no bounds at all — matches what saveWindowSnapshot
@@ -419,6 +452,30 @@ test("planRestore carries bounds into the plan", () => {
     state: "normal"
   });
   assert.deepEqual(plan.windows[1].bounds, { state: "maximized" });
+});
+
+test("planRestore carries screen into the plan", () => {
+  const screen = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const snap = {
+    windows: [
+      {
+        tabs: [{ url: "https://a.com" }],
+        activeIndex: 0,
+        bounds: { width: 960, height: 1080, left: 0, top: 0 },
+        screen
+      }
+    ]
+  };
+  const plan = planRestore(snap);
+  assert.deepEqual(plan.windows[0].screen, screen);
+});
+
+test("planRestore surfaces null screen for old snapshots that lack them", () => {
+  const snap = {
+    windows: [{ tabs: [{ url: "https://a.com" }], activeIndex: 0 }]
+  };
+  const plan = planRestore(snap);
+  assert.equal(plan.windows[0].screen, null);
 });
 
 test("planRestore surfaces null bounds for old snapshots that lack them", () => {
@@ -606,6 +663,49 @@ test("parseSnapshotImport round-trips window bounds", () => {
     state: "normal"
   });
   assert.deepEqual(result.snapshots[0].windows[1].bounds, { state: "maximized" });
+});
+
+test("parseSnapshotImport round-trips per-window screen", () => {
+  const screen = { availLeft: 0, availTop: 25, availWidth: 1920, availHeight: 1055 };
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-s",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      {
+        activeIndex: 0,
+        bounds: { width: 960, height: 1080, left: 0, top: 25 },
+        screen,
+        tabs: [{ url: "https://s.com" }]
+      }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  assert.deepEqual(result.snapshots[0].windows[0].screen, screen);
+});
+
+test("parseSnapshotImport drops malformed screen but keeps bounds", () => {
+  const doc = buildSnapshotExportForTest([{
+    id: "snap-bad-screen",
+    createdAt: 100,
+    label: "t",
+    windows: [
+      {
+        activeIndex: 0,
+        bounds: { width: 800, height: 600, left: 0, top: 0 },
+        screen: { availWidth: 1920 },
+        tabs: [{ url: "https://d.com" }]
+      }
+    ]
+  }]);
+  const result = parseSnapshotImport(JSON.stringify(doc), { createdAt: 1 });
+  assert.deepEqual(result.snapshots[0].windows[0].bounds, {
+    width: 800,
+    height: 600,
+    left: 0,
+    top: 0
+  });
+  assert.equal(result.snapshots[0].windows[0].screen, undefined);
 });
 
 test("parseSnapshotImport drops malformed bounds but keeps the snapshot", () => {

@@ -7,7 +7,8 @@ import {
   formatBoundsSummary,
   formatWindowSizeLabel,
   isBoundsValidForScreen,
-  sanitizeCapturedBounds
+  sanitizeCapturedBounds,
+  sanitizeCapturedScreen
 } from "../src/window-bounds.js";
 
 // A 1920×1080 primary monitor with no taskbar offset.
@@ -15,9 +16,6 @@ const SCREEN = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 
 
 // A 1920×1080 secondary monitor sitting to the right of SCREEN.
 const SCREEN_RIGHT = { availLeft: 1920, availTop: 0, availWidth: 1920, availHeight: 1080 };
-
-// A 1920×1080 secondary monitor sitting to the left of SCREEN (negative availLeft).
-const SCREEN_LEFT = { availLeft: -1920, availTop: 0, availWidth: 1920, availHeight: 1080 };
 
 test("sanitizeCapturedBounds keeps clean geometry", () => {
   assert.deepEqual(
@@ -237,228 +235,185 @@ test("adjustBoundsForScreen passes through when input is empty or non-array", ()
   assert.equal(adjustBoundsForScreen(undefined, SCREEN), undefined);
 });
 
-test("adjustBoundsForScreen passes through when no screen info is given", () => {
-  // Same passthrough isBoundsValidForScreen uses — relies on Chrome/Firefox
-  // to clamp impossible positions when we can't compute anything ourselves.
+test("adjustBoundsForScreen passes through when no target screen info is given", () => {
   const list = [{ width: 1440, height: 900, left: 0, top: 0 }];
   assert.deepEqual(adjustBoundsForScreen(list, null), list);
   assert.deepEqual(adjustBoundsForScreen(list, undefined), list);
   assert.deepEqual(adjustBoundsForScreen(list, {}), list);
 });
 
-test("adjustBoundsForScreen scales the layout when the bbox overflows, even if one window is on-screen", () => {
-  // W1 sits on SCREEN, but W2 is far off in global coords. The saved
-  // layout's bbox (3620×2740) overflows SCREEN in both axes — so the
-  // function stretches the WHOLE bbox onto the work area, not "leave
-  // alone because W1 happens to peek onto SCREEN". The old anyVisible
-  // rule did the latter, which stranded W2 off-screen.
-  //   scaleX = 1920/3620 ≈ 0.530, scaleY = 1080/2740 ≈ 0.394
-  const w1 = { width: 720, height: 800, left: 100, top: 60 };
-  const w2 = { width: 720, height: 800, left: 3000, top: 2000 };
-  const out = adjustBoundsForScreen([w1, w2], SCREEN);
+test("adjustBoundsForScreen scales a centered quarter window onto a bigger screen", () => {
+  // A: 1920×1080, window centered at 1/4 screen size → B: 2560×1440 still centered 1/4.
+  const saved = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const target = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
+  const w = { width: 480, height: 270, left: 720, top: 405, state: "normal" };
+  const out = adjustBoundsForScreen([{ bounds: w, screen: saved }], target);
   assert.deepEqual(out, [
-    { width: 382, height: 315, left: 0, top: 0 },
-    { width: 382, height: 315, left: 1538, top: 765 }
+    { width: 640, height: 360, left: 960, top: 540, state: "normal" }
   ]);
 });
 
-test("adjustBoundsForScreen scales and translates to a secondary monitor on the RIGHT", () => {
-  // Two side-by-side windows saved on the primary (bbox 1440×800).
-  // Restoring on SCREEN_RIGHT — independent axes:
-  //   scaleX = 1920/1440 ≈ 1.333, scaleY = 1080/800 = 1.35
-  // Each window becomes 960×1080 and lands at left=1920 / left=2880 —
-  // fills the new screen edge-to-edge on BOTH axes (uniform scale would
-  // have left height at 1067 and a vertical gap).
-  const w1 = { width: 720, height: 800, left: 0, top: 0 };
-  const w2 = { width: 720, height: 800, left: 720, top: 0 };
-  const out = adjustBoundsForScreen([w1, w2], SCREEN_RIGHT);
-  assert.deepEqual(out, [
-    { width: 960, height: 1080, left: 1920, top: 0 },
-    { width: 960, height: 1080, left: 2880, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen scales and translates to a secondary monitor sitting to the LEFT", () => {
-  // Mirror of the right-secondary test: saved on the primary at (0..1440),
-  // restoring on SCREEN_LEFT (-1920..0). Same per-axis scales, translated
-  // to the negative availLeft.
-  const w1 = { width: 720, height: 800, left: 0, top: 0 };
-  const w2 = { width: 720, height: 800, left: 720, top: 0 };
-  const out = adjustBoundsForScreen([w1, w2], SCREEN_LEFT);
-  assert.deepEqual(out, [
-    { width: 960, height: 1080, left: -1920, top: 0 },
-    { width: 960, height: 1080, left: -960, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen anchors the layout to the new screen's top-left, not the saved offset", () => {
-  // Saved windows sat 100px below the primary's top. The bbox's top is
-  // 100; after fitting, both windows land at top=0 on the new screen
-  // (the bbox origin anchors to the screen's top-left). Preserving the
-  // 100px-from-top offset on the new screen would only make sense if we
-  // knew the new screen had a similar dead zone at the top — we can't tell.
-  const w1 = { width: 720, height: 800, left: 0, top: 100 };
-  const w2 = { width: 720, height: 800, left: 720, top: 100 };
-  const out = adjustBoundsForScreen([w1, w2], SCREEN_RIGHT);
-  assert.deepEqual(out, [
-    { width: 960, height: 1080, left: 1920, top: 0 },
-    { width: 960, height: 1080, left: 2880, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen scales DOWN when the saved layout is wider than the new screen", () => {
-  // Saved layout was two 960×900 windows side-by-side (bbox 1920×900).
-  // Restoring on a 1280×720 screen:
-  //   scaleX = 1280/1920 ≈ 0.667, scaleY = 720/900 = 0.8
-  // Each window becomes 640×720 — fills both axes of the small screen.
-  const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
-  const w1 = { width: 960, height: 900, left: 0, top: 0 };
-  const w2 = { width: 960, height: 900, left: 960, top: 0 };
-  const out = adjustBoundsForScreen([w1, w2], small);
-  assert.deepEqual(out, [
-    { width: 640, height: 720, left: 0, top: 0 },
-    { width: 640, height: 720, left: 640, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen scales DOWN a single oversized window without stretching the other axis", () => {
-  // Single 960×1200 window on a 1280×720 screen. Uniform scale capped at 1:
-  //   scale = min(1, 1280/960, 720/1200) = 0.6 → 576×720.
-  // Must NOT stretch width up to 1280 (that was the old multi-window
-  // edge-to-edge path leaking into single-window restores).
-  const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
-  const w1 = { width: 960, height: 1200, left: 0, top: 0 };
-  const out = adjustBoundsForScreen([w1], small);
-  assert.deepEqual(out, [
-    { width: 576, height: 720, left: 0, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen scales UP to fill a bigger screen", () => {
-  // Saved full-height side-by-side on A, restoring on bigger B with the
-  // same aspect ratio. scaleX = scaleY = 2560/1920 = 1440/1080 ≈ 1.333.
-  // Each window grows from 960×1080 to 1280×1440 — fills B edge-to-edge.
-  const big = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
+test("adjustBoundsForScreen scales side-by-side halves independently of window count", () => {
+  // Two half-width windows on A → same relative halves on B (single-window
+  // path used to refuse scale-up; now every window uses the same formula).
+  const saved = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const target = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
   const w1 = { width: 960, height: 1080, left: 0, top: 0 };
   const w2 = { width: 960, height: 1080, left: 960, top: 0 };
-  const out = adjustBoundsForScreen([w1, w2], big);
+  const out = adjustBoundsForScreen(
+    [{ bounds: w1, screen: saved }, { bounds: w2, screen: saved }],
+    target
+  );
   assert.deepEqual(out, [
     { width: 1280, height: 1440, left: 0, top: 0 },
     { width: 1280, height: 1440, left: 1280, top: 0 }
   ]);
 });
 
-test("adjustBoundsForScreen stretches height when saved side-by-side is slightly shorter than availHeight", () => {
-  // The real user bug: left/right split that visually filled A, but
-  // chrome.windows reported height a bit under availHeight (1052 vs
-  // 1080). Uniform min(sx,sy) would fill width and leave a vertical
-  // gap on B; independent axes stretch height to the full work area.
+test("adjustBoundsForScreen uses each window's own saved screen", () => {
+  // W1 saved on primary, W2 on a right secondary — both map onto TARGET
+  // using their own screen ratios (not a shared bbox).
+  const primary = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const secondary = { availLeft: 1920, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const target = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
+  const w1 = { width: 960, height: 1080, left: 0, top: 0 };
+  const w2 = { width: 960, height: 1080, left: 1920, top: 0 };
+  const out = adjustBoundsForScreen(
+    [{ bounds: w1, screen: primary }, { bounds: w2, screen: secondary }],
+    target
+  );
+  assert.deepEqual(out, [
+    { width: 640, height: 720, left: 0, top: 0 },
+    { width: 640, height: 720, left: 0, top: 0 }
+  ]);
+});
+
+test("adjustBoundsForScreen translates proportional layout onto a secondary monitor", () => {
+  const saved = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const w1 = { width: 960, height: 1080, left: 0, top: 0 };
+  const w2 = { width: 960, height: 1080, left: 960, top: 0 };
+  const out = adjustBoundsForScreen(
+    [{ bounds: w1, screen: saved }, { bounds: w2, screen: saved }],
+    SCREEN_RIGHT
+  );
+  assert.deepEqual(out, [
+    { width: 960, height: 1080, left: 1920, top: 0 },
+    { width: 960, height: 1080, left: 2880, top: 0 }
+  ]);
+});
+
+test("adjustBoundsForScreen preserves relative top offset (does not force bbox to y=0)", () => {
+  // Window sat 100px below the work-area top (= ~9.26% of height). On a
+  // same-size target that offset stays 100 — unlike the old bbox-anchor
+  // path which pinned the layout to the screen top-left.
+  const saved = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
+  const w = { width: 960, height: 800, left: 0, top: 100 };
+  const out = adjustBoundsForScreen([{ bounds: w, screen: saved }], SCREEN);
+  assert.deepEqual(out, [{ width: 960, height: 800, left: 0, top: 100 }]);
+});
+
+test("adjustBoundsForScreen scales DOWN a single window when its saved screen was larger", () => {
+  const saved = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
+  const small = { availLeft: 0, availTop: 0, availWidth: 1280, availHeight: 720 };
+  const w = { width: 1280, height: 720, left: 640, top: 360 };
+  const out = adjustBoundsForScreen([{ bounds: w, screen: saved }], small);
+  assert.deepEqual(out, [{ width: 640, height: 360, left: 320, top: 180 }]);
+});
+
+test("adjustBoundsForScreen scales a single half-screen window onto a bigger screen", () => {
+  const saved = { availLeft: 0, availTop: 0, availWidth: 1920, availHeight: 1080 };
   const big = { availLeft: 0, availTop: 0, availWidth: 2560, availHeight: 1440 };
-  const w1 = { width: 960, height: 1052, left: 0, top: 0 };
-  const w2 = { width: 960, height: 1052, left: 960, top: 0 };
-  const out = adjustBoundsForScreen([w1, w2], big);
-  assert.deepEqual(out, [
-    { width: 1280, height: 1440, left: 0, top: 0 },
-    { width: 1280, height: 1440, left: 1280, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen keeps single-window size when translating to another screen", () => {
-  // Single-window snapshots (dashboard「保存本组」、popup「保存当前窗口」)
-  // must NOT stretch to fill the target screen — that turns a half-screen
-  // window into a full-screen one and looks like "maximized". Off-screen
-  // single windows only translate; size and state stay put.
-  const w1 = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
-  const out = adjustBoundsForScreen([w1], SCREEN_RIGHT);
-  assert.deepEqual(out, [
-    { width: 720, height: 800, left: 1920, top: 0, state: "normal" }
-  ]);
-});
-
-test("adjustBoundsForScreen does not stretch a single half-screen window on the same screen", () => {
-  // Regression: saved left-half window on the same display must restore
-  // at half width. The old edge-to-edge scale treated the half as the
-  // full bbox and blew it up to availWidth (= looks maximized).
   const half = { width: 960, height: 1080, left: 0, top: 0, state: "normal" };
-  assert.deepEqual(adjustBoundsForScreen([half], SCREEN), [half]);
+  const out = adjustBoundsForScreen([{ bounds: half, screen: saved }], big);
+  assert.deepEqual(out, [
+    { width: 1280, height: 1440, left: 0, top: 0, state: "normal" }
+  ]);
+});
+
+test("adjustBoundsForScreen clamps legacy windows without saved screen", () => {
+  // No `screen` → keep pixels, clamp into target. Off-screen left is pulled in.
+  const w = { width: 720, height: 800, left: 3000, top: 2000 };
+  const out = adjustBoundsForScreen([w], SCREEN);
+  assert.deepEqual(out, [{ width: 720, height: 800, left: 1200, top: 280 }]);
+});
+
+test("adjustBoundsForScreen shrinks oversized legacy windows to fit the work area", () => {
+  const w = { width: 3000, height: 2000, left: 0, top: 0 };
+  const out = adjustBoundsForScreen([w], SCREEN);
+  assert.deepEqual(out, [{ width: 1920, height: 1080, left: 0, top: 0 }]);
 });
 
 test("adjustBoundsForScreen passes maximized / fullscreen / minimized bounds through unchanged", () => {
-  // The user's expectation: a saved "maximized" window stays maximized on
-  // the new screen (Chrome honors state="maximized" verbatim). These
-  // entries skip the bbox math entirely; applyBoundsToCreateData will only
-  // forward `state`.
   const max = { state: "maximized" };
   const full = { state: "fullscreen" };
   const min = { state: "minimized" };
-  const stub = { width: 0, height: 0 };
-  const list = [max, full, min, stub];
-  assert.deepEqual(adjustBoundsForScreen(list, SCREEN_RIGHT), list);
+  const list = [
+    { bounds: max, screen: SCREEN },
+    { bounds: full, screen: SCREEN },
+    { bounds: min, screen: SCREEN }
+  ];
+  assert.deepEqual(adjustBoundsForScreen(list, SCREEN_RIGHT), [max, full, min]);
 });
 
-test("adjustBoundsForScreen leaves state-override windows alone even when they have geometry", () => {
-  // Chrome still reports width/height/left/top for a maximized window — but
-  // those are pixel values from the original screen. Including them in the
-  // bbox would inflate the bbox to the full original screen and distort the
-  // scale for the normal windows sitting alongside. With only one normal
-  // geometric entry, the single-window path applies: translate, don't stretch.
+test("adjustBoundsForScreen leaves state-override geometry alone even with a saved screen", () => {
   const maxWithGeom = { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 };
-  const normal = { width: 720, height: 800, left: 0, top: 0 };
-  const out = adjustBoundsForScreen([maxWithGeom, normal], SCREEN_RIGHT);
+  const normal = { width: 960, height: 1080, left: 0, top: 0 };
+  const out = adjustBoundsForScreen(
+    [
+      { bounds: maxWithGeom, screen: SCREEN },
+      { bounds: normal, screen: SCREEN }
+    ],
+    SCREEN_RIGHT
+  );
   assert.deepEqual(out, [
-    { state: "maximized", width: 1920, height: 1080, left: 0, top: 0 },
-    { width: 720, height: 800, left: 1920, top: 0 }
-  ]);
-});
-
-test("adjustBoundsForScreen scales only the geometric subset when some entries are state-override", () => {
-  // Mixed list — fullscreen passes through; the lone normal window only
-  // translates (single-window path), keeping its saved size.
-  const normal = { width: 720, height: 800, left: 0, top: 0, state: "normal" };
-  const fullscreen = { state: "fullscreen" };
-  const out = adjustBoundsForScreen([normal, fullscreen], SCREEN_RIGHT);
-  assert.deepEqual(out, [
-    { width: 720, height: 800, left: 1920, top: 0, state: "normal" },
-    fullscreen
+    maxWithGeom,
+    { width: 960, height: 1080, left: 1920, top: 0 }
   ]);
 });
 
 test("adjustBoundsForScreen returns a new array; does not mutate the input", () => {
-  // Pure-helper contract — callers in tab-service.js may reuse the original
-  // bounds objects for other purposes (e.g. formatting), so we must not
-  // rewrite them in place.
-  const w1 = { width: 720, height: 800, left: 0, top: 0 };
-  const w2 = { width: 720, height: 800, left: 720, top: 0 };
-  const input = [w1, w2];
-  const snapshot = input.slice();
+  const w1 = { width: 960, height: 1080, left: 0, top: 0 };
+  const entry = { bounds: w1, screen: SCREEN };
+  const input = [entry];
+  const snapshot = [{ bounds: { ...w1 }, screen: { ...SCREEN } }];
   const out = adjustBoundsForScreen(input, SCREEN_RIGHT);
   assert.deepEqual(input, snapshot);
   assert.notEqual(out, input);
   assert.notEqual(out[0], w1);
-  assert.notEqual(out[1], w2);
 });
 
-test("adjustBoundsForScreen is a no-op only when the saved bbox exactly matches the new screen", () => {
-  // The only true no-op: the saved bbox already has the same origin AND
-  // size as the new screen's work area. This is the "restoring on the
-  // same screen with a perfectly matching layout" fast path. Anything off
-  // (offset, different size) triggers at least a translate or scale.
-  const w1 = { width: 960, height: 1080, left: 0, top: 0 };
-  const w2 = { width: 960, height: 1080, left: 960, top: 0 };
-  // bbox = (0, 0, 1920, 1080) matches SCREEN exactly.
-  assert.deepEqual(adjustBoundsForScreen([w1, w2], SCREEN), [w1, w2]);
+test("adjustBoundsForScreen accepts workArea-shaped saved screens", () => {
+  // chrome.system.display workArea uses left/top/width/height — sanitize
+  // accepts both shapes so capture can pass either through.
+  const savedWorkArea = { left: 0, top: 0, width: 1920, height: 1080 };
+  const w = { width: 960, height: 540, left: 480, top: 270 };
+  const out = adjustBoundsForScreen(
+    [{ bounds: w, screen: savedWorkArea }],
+    { availLeft: 0, availTop: 0, availWidth: 960, availHeight: 540 }
+  );
+  assert.deepEqual(out, [{ width: 480, height: 270, left: 240, top: 135 }]);
 });
 
-test("adjustBoundsForScreen scales up to fill when saved bbox is contained but smaller than the new screen", () => {
-  // Saved bbox is contained inside SCREEN but offset and smaller.
-  // Independent axes stretch it to fill the full work area:
-  //   scaleX = 1920/1440 ≈ 1.333, scaleY = 1080/800 = 1.35
-  // → 960×1080 each, starting at (0, 0).
-  const w1 = { width: 720, height: 800, left: 100, top: 60 };
-  const w2 = { width: 720, height: 800, left: 820, top: 60 };
-  const out = adjustBoundsForScreen([w1, w2], SCREEN);
-  assert.deepEqual(out, [
-    { width: 960, height: 1080, left: 0, top: 0 },
-    { width: 960, height: 1080, left: 960, top: 0 }
-  ]);
+test("sanitizeCapturedScreen keeps a clean avail* work area", () => {
+  assert.deepEqual(
+    sanitizeCapturedScreen({ availLeft: 0, availTop: 25, availWidth: 1920, availHeight: 1055 }),
+    { availLeft: 0, availTop: 25, availWidth: 1920, availHeight: 1055 }
+  );
+});
+
+test("sanitizeCapturedScreen accepts workArea left/top/width/height aliases", () => {
+  assert.deepEqual(
+    sanitizeCapturedScreen({ left: 1920, top: 0, width: 1440, height: 900 }),
+    { availLeft: 1920, availTop: 0, availWidth: 1440, availHeight: 900 }
+  );
+});
+
+test("sanitizeCapturedScreen returns null when any field is missing or invalid", () => {
+  assert.equal(sanitizeCapturedScreen(null), null);
+  assert.equal(sanitizeCapturedScreen({}), null);
+  assert.equal(sanitizeCapturedScreen({ availLeft: 0, availTop: 0, availWidth: 1920 }), null);
+  assert.equal(
+    sanitizeCapturedScreen({ availLeft: 0, availTop: 0, availWidth: 0, availHeight: 1080 }),
+    null
+  );
 });

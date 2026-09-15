@@ -7,18 +7,27 @@
 //
 // The shape used by the rest of the codebase:
 //
-//   { width, height, left, top, state }
-//     - width/height: positive integer pixels (frame included)
-//     - left/top:     integer pixels (offset from screen origin)
+//   bounds: { width, height, left, top, state }
+//     - width/height: positive integer pixels (full browser frame included)
+//     - left/top:     integer pixels (global / virtual-desktop coords)
 //     - state:        "normal" | "minimized" | "maximized" | "fullscreen"
-//                     (optional — capture / restore accept missing state)
 //
-// We persist bounds as a single nested object (matching chrome.windows.Window's
-// `bounds` concept) rather than flattening the fields onto the captured
-// window. That keeps the existing `tabs / activeIndex / incognito` window
-// shape intact and makes it trivial to skip the whole object via spread:
+//   screen: { availLeft, availTop, availWidth, availHeight }
+//     - work area of the display the window sat on at capture time
+//     - also accepts chrome.system.display workArea { left, top, width, height }
 //
-//   ...(bounds ? { bounds } : {})
+// Restore maps each normal window independently onto the target work area:
+//
+//   scaleX = target.availWidth  / saved.availWidth
+//   scaleY = target.availHeight / saved.availHeight
+//   left'  = target.availLeft + (left - saved.availLeft) * scaleX
+//   top'   = target.availTop  + (top  - saved.availTop)  * scaleY
+//   w'     = width  * scaleX
+//   h'     = height * scaleY
+//
+// Single- and multi-window snapshots share this path. Old snapshots without
+// `screen` keep their pixel geometry and are only clamped into the target
+// work area. Maximized / fullscreen / minimized pass through as state only.
 
 const VALID_STATES = new Set(["normal", "minimized", "maximized", "fullscreen"]);
 
@@ -75,6 +84,21 @@ export function sanitizeCapturedBounds(raw) {
   return bounds;
 }
 
+// Work-area screen info. Accepts either the window.screen shape (avail*) or
+// chrome.system.display workArea ({ left, top, width, height }). All four
+// fields are required — a partial screen is useless for proportional restore.
+export function sanitizeCapturedScreen(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const availLeft = asInt(raw.availLeft ?? raw.left);
+  const availTop = asInt(raw.availTop ?? raw.top);
+  const availWidth = asPositiveInt(raw.availWidth ?? raw.width);
+  const availHeight = asPositiveInt(raw.availHeight ?? raw.height);
+  if (availLeft == null || availTop == null || availWidth == null || availHeight == null) {
+    return null;
+  }
+  return { availLeft, availTop, availWidth, availHeight };
+}
+
 // Decide whether a saved bounds would land the restored window somewhere
 // usable on the user's current display setup. `screen` is the work area
 // reported by window.screen from the calling extension page
@@ -117,217 +141,105 @@ export function isBoundsValidForScreen(bounds, screen) {
   return overlapWidth >= MIN_VISIBLE_PX && overlapHeight >= MIN_VISIBLE_PX;
 }
 
-// Single-window restore: keep saved size when it fits. Never scale UP
-// (that turns half-screen saves into full-screen). Scale DOWN uniformly
-// only when the window itself is larger than the work area; then clamp
-// position so the window lands on-screen.
-function adjustSingleWindowBounds(savedBoundsList, entry, screen) {
-  const { index, bounds } = entry;
-  const screenLeft = asInt(screen.availLeft) ?? 0;
-  const screenTop = asInt(screen.availTop) ?? 0;
-  const screenWidth = asPositiveInt(screen.availWidth);
-  const screenHeight = asPositiveInt(screen.availHeight);
-  if (screenWidth == null || screenHeight == null) return savedBoundsList;
+function hasFullGeometry(bounds) {
+  return (
+    asPositiveInt(bounds.width) != null &&
+    asPositiveInt(bounds.height) != null &&
+    asInt(bounds.left) != null &&
+    asInt(bounds.top) != null
+  );
+}
 
-  // Cap at 1: shrink to fit if oversized, never enlarge a deliberate size.
-  const scale = Math.min(1, screenWidth / bounds.width, screenHeight / bounds.height);
-  const width = Math.round(bounds.width * scale);
-  const height = Math.round(bounds.height * scale);
+// Normalize one list entry: callers may pass either a plain bounds object
+// (legacy / tests) or `{ bounds, screen? }` from planRestore.
+function normalizeAdjustEntry(item) {
+  if (!item || typeof item !== "object") {
+    return { bounds: null, screen: null };
+  }
+  if (Object.prototype.hasOwnProperty.call(item, "bounds")) {
+    return {
+      bounds: item.bounds && typeof item.bounds === "object" ? item.bounds : null,
+      screen: sanitizeCapturedScreen(item.screen)
+    };
+  }
+  return { bounds: item, screen: sanitizeCapturedScreen(item.screen) };
+}
+
+// Map a window from its saved work area onto the target work area with
+// independent X/Y scales (window relative to screen, not layout bbox).
+function scaleBoundsToScreen(bounds, savedScreen, targetScreen) {
+  const scaleX = targetScreen.availWidth / savedScreen.availWidth;
+  const scaleY = targetScreen.availHeight / savedScreen.availHeight;
+  return {
+    ...bounds,
+    left: Math.round(targetScreen.availLeft + (bounds.left - savedScreen.availLeft) * scaleX),
+    top: Math.round(targetScreen.availTop + (bounds.top - savedScreen.availTop) * scaleY),
+    width: Math.round(bounds.width * scaleX),
+    height: Math.round(bounds.height * scaleY)
+  };
+}
+
+// Legacy / missing saved screen: keep pixel size (shrink only if oversized),
+// then clamp position into the target work area.
+function clampBoundsToScreen(bounds, targetScreen) {
+  let width = bounds.width;
+  let height = bounds.height;
   let left = bounds.left;
   let top = bounds.top;
 
-  const screenRight = screenLeft + screenWidth;
-  const screenBottom = screenTop + screenHeight;
+  if (width > targetScreen.availWidth) width = targetScreen.availWidth;
+  if (height > targetScreen.availHeight) height = targetScreen.availHeight;
+
+  const screenRight = targetScreen.availLeft + targetScreen.availWidth;
+  const screenBottom = targetScreen.availTop + targetScreen.availHeight;
   if (left + width > screenRight) left = screenRight - width;
   if (top + height > screenBottom) top = screenBottom - height;
-  if (left < screenLeft) left = screenLeft;
-  if (top < screenTop) top = screenTop;
+  if (left < targetScreen.availLeft) left = targetScreen.availLeft;
+  if (top < targetScreen.availTop) top = targetScreen.availTop;
 
-  if (
-    width === bounds.width &&
-    height === bounds.height &&
-    left === bounds.left &&
-    top === bounds.top
-  ) {
-    return savedBoundsList;
-  }
-
-  const result = savedBoundsList.slice();
-  result[index] = {
+  return {
     ...bounds,
-    width,
-    height,
+    width: Math.round(width),
+    height: Math.round(height),
     left: Math.round(left),
     top: Math.round(top)
   };
-  return result;
 }
 
-// Adjust a snapshot's window bounds so the saved layout fits the user's
-// current display. Pure helper, no Chrome API access.
+// Adjust snapshot window geometry for the user's current display.
 //
-// `savedBoundsList` is the array of bounds captured from the snapshot
-// (window.bounds, sanitized). `screen` is the work area reported by
-// window.screen from the calling extension page
-// ({ availLeft, availTop, availWidth, availHeight }) — the same shape
-// isBoundsValidForScreen takes.
+// `savedList` entries are either plain bounds or `{ bounds, screen? }`.
+// `targetScreen` is the work area from the calling extension page
+// ({ availLeft, availTop, availWidth, availHeight }).
 //
-// Behavior, in order:
+// Per entry:
+//   - maximized / fullscreen / minimized → unchanged (state-only restore)
+//   - normal + saved screen → proportional map onto target (scaleX ≠ scaleY OK)
+//   - normal + no saved screen → raw pixels, clamped into target work area
+//   - empty / no target screen → return bounds unchanged
 //
-//   1. Empty/non-array input, or no `screen` info → return as-is. Same
-//      passthrough isBoundsValidForScreen uses; we trust Chrome/Firefox to
-//      clamp impossible positions when we can't compute them ourselves.
-//      This is also the path Firefox falls into when an extension page can't
-//      reach `window.screen` for any reason (it normally can, but we don't
-//      bet the layout on it).
-//
-//   2. The saved bbox exactly matches the current screen's work area (same
-//      origin AND same size) → return unchanged. Same-screen-restore fast
-//      path; nothing to do.
-//
-//   3. Otherwise → stretch the bbox independently on X and Y so it maps
-//      edge-to-edge onto the new screen's work area (scaleX / scaleY may
-//      differ), then translate so the bbox's top-left lands at the
-//      screen's work-area top-left. Both up- and down-scaling are
-//      intentional — see the next paragraph.
-//
-// "fit edge-to-edge, independent axes":
-//
-//   - Scale DOWN when the saved layout overflows the new screen in any
-//     dimension (e.g. saved on a 4K external, restoring on a 1080p laptop).
-//     Required to avoid the windows clipping into the taskbar / dock.
-//
-//   - Scale UP when the saved layout is smaller than the new screen. This
-//     matches user intent: a layout that filled screen A should fill
-//     screen B too — not stay small in a corner of a bigger monitor. The
-//     saved `chrome.windows.Window` bounds are typically the work-area
-//     pixels the user sized to on A (not the raw physical screen), so a
-//     bbox that filled A's `availHeight` would otherwise come back on B
-//     at the same pixel height, leaving B's extra work area unused.
-//
-//     Scope: scale-up applies only to multi-window layouts (2+ normal-
-//     geometry entries). A single half-screen window (dashboard「保存本组」、
-//     popup「保存当前窗口」) must keep its saved size — stretching it to
-//     fill availWidth looks like "maximized" and destroys the capture.
-//
-// Independent scaleX / scaleY (not a single uniform scale):
-//
-//   Saved window heights rarely equal availHeight exactly (imperfect snap,
-//   a few pixels of OS chrome, etc.), so the bbox aspect ratio often
-//   differs from the target screen. A uniform min(sx, sy) scale would
-//   fill width first and leave a vertical gap — "左右平分了，上下没撑满".
-//   Stretching each axis separately maps the bbox onto the full work
-//   area; relative layout (left/right, top/bottom splits) is preserved,
-//   individual window aspect ratios may change slightly.
-//
-// State-override entries (maximized / fullscreen / minimized) are passed
-// through unchanged. applyBoundsToCreateData honors their `state` field
-// on the new screen, so a saved "maximized" window opens maximized on the
-// new screen no matter its size. They're also excluded from the bbox math:
-// a single maximized window that covers the whole old screen would
-// otherwise inflate the bbox and distort the scale for normal windows
-// sitting alongside it.
-export function adjustBoundsForScreen(savedBoundsList, screen) {
-  if (!Array.isArray(savedBoundsList) || savedBoundsList.length === 0) {
-    return savedBoundsList;
-  }
-  if (!screen || typeof screen !== "object") {
-    return savedBoundsList;
+// Returns an array of bounds objects (same length / order as input).
+export function adjustBoundsForScreen(savedList, targetScreen) {
+  if (!Array.isArray(savedList) || savedList.length === 0) {
+    return savedList;
   }
 
-  // Collect entries that are normal-state AND have full geometry. State-
-  // override windows (maximized / fullscreen / minimized) pass through
-  // unchanged — see the function header for why.
-  const validEntries = [];
-  for (let i = 0; i < savedBoundsList.length; i += 1) {
-    const b = savedBoundsList[i];
-    if (
-      b && typeof b === "object" &&
-      !STATE_OVERRIDES_GEOMETRY.has(b.state) &&
-      asPositiveInt(b.width) != null &&
-      asPositiveInt(b.height) != null &&
-      asInt(b.left) != null &&
-      asInt(b.top) != null
-    ) {
-      validEntries.push({ index: i, bounds: b });
+  const target = sanitizeCapturedScreen(targetScreen);
+  if (!target) {
+    return savedList.map((item) => normalizeAdjustEntry(item).bounds);
+  }
+
+  return savedList.map((item) => {
+    const { bounds, screen: savedScreen } = normalizeAdjustEntry(item);
+    if (!bounds) return bounds;
+    if (STATE_OVERRIDES_GEOMETRY.has(bounds.state)) return bounds;
+    if (!hasFullGeometry(bounds)) return bounds;
+
+    if (savedScreen) {
+      return scaleBoundsToScreen(bounds, savedScreen, target);
     }
-  }
-  if (validEntries.length === 0) return savedBoundsList;
-
-  // Single normal-geometry window: never stretch to fill the screen.
-  // Preserve saved size; only translate into the work area when off-screen.
-  if (validEntries.length === 1) {
-    return adjustSingleWindowBounds(savedBoundsList, validEntries[0], screen);
-  }
-
-  // Bounding box of the saved normal-state layout, in global screen coords.
-  let bboxLeft = Infinity;
-  let bboxTop = Infinity;
-  let bboxRight = -Infinity;
-  let bboxBottom = -Infinity;
-  for (const { bounds } of validEntries) {
-    if (bounds.left < bboxLeft) bboxLeft = bounds.left;
-    if (bounds.top < bboxTop) bboxTop = bounds.top;
-    const right = bounds.left + bounds.width;
-    const bottom = bounds.top + bounds.height;
-    if (right > bboxRight) bboxRight = right;
-    if (bottom > bboxBottom) bboxBottom = bottom;
-  }
-  if (!Number.isFinite(bboxLeft) || !Number.isFinite(bboxRight) ||
-      bboxRight <= bboxLeft || bboxBottom <= bboxTop) {
-    return savedBoundsList;
-  }
-  const bboxWidth = bboxRight - bboxLeft;
-  const bboxHeight = bboxBottom - bboxTop;
-
-  const screenLeft = asInt(screen.availLeft) ?? 0;
-  const screenTop = asInt(screen.availTop) ?? 0;
-  const screenWidth = asPositiveInt(screen.availWidth);
-  const screenHeight = asPositiveInt(screen.availHeight);
-  if (screenWidth == null || screenHeight == null) return savedBoundsList;
-
-  // Fast path: bbox perfectly matches the new screen's work area (same
-  // size, same origin). Nothing to do — the layout already fills the
-  // screen and is at the right starting point.
-  if (
-    bboxLeft === screenLeft &&
-    bboxTop === screenTop &&
-    bboxWidth === screenWidth &&
-    bboxHeight === screenHeight
-  ) {
-    return savedBoundsList;
-  }
-
-  // Stretch independently on each axis so the bbox fills the work area
-  // edge-to-edge. Both up and down are allowed; see the function header.
-  const scaleX = screenWidth / bboxWidth;
-  const scaleY = screenHeight / bboxHeight;
-  // Round-to-1 + offset guard: if the bbox already matches the screen's
-  // origin and size (modulo float noise), no work to do.
-  if (
-    Math.abs(scaleX - 1) < 1e-6 &&
-    Math.abs(scaleY - 1) < 1e-6 &&
-    bboxLeft === screenLeft &&
-    bboxTop === screenTop
-  ) {
-    return savedBoundsList;
-  }
-
-  // Apply scale + translate. Each window's old (left, top) is expressed
-  // relative to the bbox origin, scaled per-axis, then offset to land at
-  // the screen's work-area top-left. State is preserved verbatim
-  // (state-override entries never reach here).
-  const result = savedBoundsList.slice();
-  for (const { index, bounds } of validEntries) {
-    result[index] = {
-      ...bounds,
-      left: Math.round(screenLeft + (bounds.left - bboxLeft) * scaleX),
-      top: Math.round(screenTop + (bounds.top - bboxTop) * scaleY),
-      width: Math.round(bounds.width * scaleX),
-      height: Math.round(bounds.height * scaleY)
-    };
-  }
-  return result;
+    return clampBoundsToScreen(bounds, target);
+  });
 }
 
 // Project a captured bounds onto a chrome.windows.create / browser.windows.create

@@ -18,7 +18,7 @@ import {
 } from "./chrome-api.js";
 import { BOOKMARK_MODES, createBookmarkPlan } from "./bookmark-planner.js";
 import { groupTabs } from "./age-grouping.js";
-import { filterWindowsOnSameDisplay, filterWindowsOnSameDisplayVisible, pickDisplayForWindow } from "./screen-windows.js";
+import { attachScreenToWindows, filterWindowsOnSameDisplay, filterWindowsOnSameDisplayVisible, pickDisplayForWindow } from "./screen-windows.js";
 import { groupTabsByWindow } from "./window-grouping.js";
 import { adjustBoundsForScreen, applyBoundsToCreateData, formatBoundsSummary } from "./window-bounds.js";
 import {
@@ -431,9 +431,17 @@ function summarizeSnapshot(snapshot) {
   };
 }
 
+// Enrich live windows with per-display workArea (`screen`) before capture.
+// Firefox / missing API → windows pass through unchanged (restore clamps).
+async function captureSnapshotWithScreens(tabs, windows, createdAt = Date.now()) {
+  const displays = await getDisplays();
+  const enriched = attachScreenToWindows(windows, displays);
+  return captureSnapshot(tabs, enriched, createdAt);
+}
+
 export async function saveSnapshot() {
   const [tabs, windows] = await Promise.all([queryTabs({}), queryWindows({})]);
-  const snapshot = captureSnapshot(tabs, windows, Date.now());
+  const snapshot = await captureSnapshotWithScreens(tabs, windows, Date.now());
   const snapshots = await readSnapshots();
   // Newest first so the popup doesn't need to sort.
   snapshots.unshift(snapshot);
@@ -458,7 +466,7 @@ export async function saveWindowSnapshot(windowId) {
   // capture still finds them, just without geometry.
   const liveWindows = await queryWindows({}).catch(() => []);
   const liveWindow = liveWindows.find((win) => win?.id === safeWindowId);
-  const snapshot = captureSnapshot(
+  const snapshot = await captureSnapshotWithScreens(
     windowTabs,
     [liveWindow || { id: safeWindowId }],
     Date.now()
@@ -529,7 +537,7 @@ export async function saveScreenSnapshot(activeWindowId) {
   const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
   const windows = [...sameDisplayWindowIds].map((id) => liveById.get(id) || { id });
 
-  const snapshot = captureSnapshot(filteredTabs, windows, Date.now());
+  const snapshot = await captureSnapshotWithScreens(filteredTabs, windows, Date.now());
 
   if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
     const summary = createSummary();
@@ -608,7 +616,7 @@ export async function saveScreenVisibleSnapshot(activeWindowId) {
   const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
   const windows = [...sameDisplayWindowIds].map((id) => liveById.get(id) || { id });
 
-  const snapshot = captureSnapshot(filteredTabs, windows, Date.now());
+  const snapshot = await captureSnapshotWithScreens(filteredTabs, windows, Date.now());
 
   if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
     const summary = createSummary();
@@ -658,7 +666,7 @@ export async function saveSelectedSnapshot(tabIds) {
   const liveById = new Map(liveWindows.map((win) => [win?.id, win]));
   const windows = windowIds.map((id) => liveById.get(id) || { id });
 
-  const snapshot = captureSnapshot(selectedTabs, windows, Date.now());
+  const snapshot = await captureSnapshotWithScreens(selectedTabs, windows, Date.now());
 
   if (snapshot.windowCount === 0 || snapshot.tabCount === 0) {
     summary.failed = 1;
@@ -780,14 +788,11 @@ export async function restoreSnapshot(id, { excludeIncognito = false, screen = n
     lazyUrlFor: buildLazyTabUrl,
     excludeIncognito
   });
-  // Pre-compute per-window geometry for the whole plan in one pass, so an
-  // off-screen saved layout gets translated as a unit (preserves a
-  // side-by-side / stacked arrangement instead of piling every window on
-  // the top-left of the new screen). The per-window `isBoundsValidForScreen`
-  // check inside adjustBoundsForScreen also handles the "at least one
-  // window is already visible — leave the layout alone" case.
+  // Per-window proportional map onto the caller's current work area.
+  // Each entry carries its saved `screen` so scaleX/scaleY are relative to
+  // that display — not a multi-window bounding box.
   const adjustedBounds = adjustBoundsForScreen(
-    plan.windows.map((w) => w.bounds),
+    plan.windows.map((w) => ({ bounds: w.bounds, screen: w.screen })),
     screen
   );
   for (const [index, window] of plan.windows.entries()) {
@@ -878,13 +883,11 @@ export async function openSnapshotWindow(snapshotId, windowIndex, { screen = nul
   try {
     const createData = { url: entry.urls };
     if (entry.incognito) createData.incognito = true;
-    // Single window out of a multi-window snapshot — there's no layout to
-    // preserve relative to other windows, but we still want this window to
-    // land somewhere visible on the current display when the saved bounds
-    // are off-screen. adjustBoundsForScreen handles both the passthrough
-    // (bounds already on-screen / no screen info) and translation (bounds
-    // entirely off-screen) cases for a single-element array.
-    const [adjusted] = adjustBoundsForScreen([entry.bounds], screen);
+    // Same proportional / clamp path as full restore, for this one window.
+    const [adjusted] = adjustBoundsForScreen(
+      [{ bounds: entry.bounds, screen: entry.screen }],
+      screen
+    );
     applyBoundsToCreateData(createData, adjusted);
     await createWindow(createData);
     summary.succeeded = 1;
