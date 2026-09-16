@@ -1413,16 +1413,26 @@ body[data-theme="dark"] .theme-toggle button[aria-selected="true"] {
   font-size: 0.68rem;
 }
 
-/* Window size shown next to the tab count in the preview header. Smaller
- * and quieter than the surrounding title so it reads as metadata rather than
- * part of the window label. */
+/* Window size / state shown next to the tab count in the preview header.
+ * Pill-shaped so it reads as a tag rather than part of the window label. */
 .preview-window__size {
   display: inline-block;
-  margin-left: 0.35rem;
-  font-size: 0.72rem;
-  font-weight: 400;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  background: var(--badge-bg);
   color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  vertical-align: 1px;
+}
+
+/* Maximized / fullscreen / minimized get a slightly stronger accent so the
+ * state reads at a glance from across the dialog. */
+.preview-window__size--state {
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 /* Incognito marker on snapshot rows (popup + manager). */

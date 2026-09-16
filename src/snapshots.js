@@ -675,9 +675,12 @@ function renderPreviewWindow(window, index) {
   // Normal windows show their captured size; maximized / fullscreen / minimized
   // show the state label instead because the saved size wouldn't match what the
   // user actually sees after restore.
-  const metaLabel = formatWindowSizeLabel(window.bounds) || formatBoundsLabel(window.bounds);
+  const sizeLabel = formatWindowSizeLabel(window.bounds);
+  const stateLabel = formatBoundsLabel(window.bounds);
+  const metaLabel = sizeLabel || stateLabel;
+  const isStateOnly = !sizeLabel && Boolean(stateLabel);
   const sizeSegment = metaLabel
-    ? ` <span class="preview-window__size">(${escapeHtml(metaLabel)})</span>`
+    ? ` <span class="preview-window__size${isStateOnly ? " preview-window__size--state" : ""}">${escapeHtml(metaLabel)}</span>`
     : "";
   const rows = tabs.map((tab, tabIndex) => {
     const isActive = tabIndex === window.activeIndex;
