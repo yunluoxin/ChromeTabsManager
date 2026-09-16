@@ -2,7 +2,7 @@
 // everything heavier than one-click restore (multi-select, export, import,
 // preview) lives on this full page.
 import { formatActionSummary } from "./action-summary.js";
-import { api, queryLastFocusedActiveTab, sendMessage as sendExtensionMessage } from "./chrome-api.js";
+import { api, queryLastFocusedActiveTab, sendMessage as sendExtensionMessage, SUPPORTS_SCREEN_INFO } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
 import { formatWindowSizeLabel } from "./window-bounds.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
@@ -19,7 +19,9 @@ const state = {
 const elements = {
   summary: document.querySelector("#snapshotSummary"),
   search: document.querySelector("#search"),
+  saveAllWrap: document.querySelector(".save-all"),
   saveAll: document.querySelector("#saveAll"),
+  saveAllMenu: document.querySelector("#saveAllMenu"),
   saveCurrentWindow: document.querySelector("#saveCurrentWindow"),
   importButton: document.querySelector("#importButton"),
   importFile: document.querySelector("#importFile"),
@@ -44,6 +46,15 @@ init();
 
 async function init() {
   await initTheme();
+  // Reveal the screen-filter menu only when the runtime exposes
+  // `chrome.system.display` — Firefox has no equivalent, so on Firefox the
+  // menu must stay hidden (no flash on first paint because the HTML also
+  // ships with `hidden`).
+  if (SUPPORTS_SCREEN_INFO) {
+    elements.saveAllMenu.hidden = false;
+    elements.saveAll.setAttribute("aria-haspopup", "true");
+    elements.saveAll.setAttribute("aria-expanded", "false");
+  }
   bindEvents();
   // Live sync: popup (or another manager tab) mutating snapshots lands in
   // storage.local — reload the list so this page never goes stale.
@@ -92,7 +103,20 @@ function bindEvents() {
     state.query = elements.search.value.trim().toLowerCase();
     renderList();
   });
-  elements.saveAll.addEventListener("click", () => saveAllWindows());
+  // Split-button: primary click = save all; hover/focus reveals the screen-
+  // scoped alternatives. After any choice we suppress the menu until the
+  // pointer leaves `.save-all`, otherwise :hover would keep it open.
+  if (SUPPORTS_SCREEN_INFO) {
+    elements.saveAll.addEventListener("click", () => {
+      closeSaveAllMenu();
+      saveAllWindows();
+    });
+    elements.saveAllMenu.addEventListener("click", handleSaveAllMenuClick);
+    elements.saveAllMenu.addEventListener("keydown", handleSaveAllMenuKeydown);
+    elements.saveAllWrap.addEventListener("mouseleave", clearSaveAllMenuSuppress);
+  } else {
+    elements.saveAll.addEventListener("click", () => saveAllWindows());
+  }
   elements.saveCurrentWindow.addEventListener("click", () => saveCurrentWindow());
   elements.importButton.addEventListener("click", () => elements.importFile.click());
   elements.importFile.addEventListener("change", handleImportFile);
@@ -354,6 +378,79 @@ async function saveAllWindows() {
   } catch (error) {
     showToast(error.message, { type: "error" });
   }
+}
+
+// Same host-window resolution as saveCurrentWindowTabs in popup.js — Chrome
+// MV3's service worker returns a stale/wrong value for windows.getCurrent,
+// so the only safe source is the UI page's own tabs.query. Firefox returns
+// the same value either way, so this is a no-op there. SUPPORTS_SCREEN_INFO
+// is checked before any of this menu code is wired up — on Firefox the menu
+// is hidden, so these only fire on Chromium.
+async function saveCurrentScreenTabs() {
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
+    showToast("无法确定当前窗口。", { type: "error" });
+    return;
+  }
+  try {
+    const meta = await sendMessage({ type: "saveScreenSnapshot", activeWindowId: tab.windowId });
+    showToast(`已保存：${meta.label} · 当前屏幕 · ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    await loadSnapshots();
+  } catch (error) {
+    showToast(error.message, { type: "error" });
+  }
+}
+
+// Same path as saveCurrentScreenTabs but with the duplicate-bounds heuristic
+// in tab-service.js — drops windows that share their exact bounds with
+// another window on the same display, on the assumption they're on a
+// different macOS Space and therefore hidden. Best-effort approximation
+// since Chrome's extension API doesn't expose Space membership.
+async function saveCurrentScreenVisibleTabs() {
+  const tab = await queryLastFocusedActiveTab().catch(() => null);
+  if (!tab || tab.windowId == null) {
+    showToast("无法确定当前窗口。", { type: "error" });
+    return;
+  }
+  try {
+    const meta = await sendMessage({ type: "saveScreenVisibleSnapshot", activeWindowId: tab.windowId });
+    showToast(`已保存：${meta.label} · 当前屏幕（去挡）· ${meta.windowCount} 窗口 · ${meta.tabCount} 标签`);
+    await loadSnapshots();
+  } catch (error) {
+    showToast(error.message, { type: "error" });
+  }
+}
+
+function handleSaveAllMenuClick(event) {
+  const item = event.target.closest("[data-scope]");
+  if (!item) return;
+  closeSaveAllMenu();
+  if (item.dataset.scope === "all") {
+    saveAllWindows();
+  } else if (item.dataset.scope === "screen") {
+    saveCurrentScreenTabs();
+  } else if (item.dataset.scope === "screenVisible") {
+    saveCurrentScreenVisibleTabs();
+  }
+}
+
+function handleSaveAllMenuKeydown(event) {
+  if (event.key === "Escape") {
+    closeSaveAllMenu();
+    event.preventDefault();
+  }
+}
+
+// Hide the menu immediately after a choice / Escape, even while the cursor
+// is still over `.save-all`. Class goes on the wrapper (not the button) so
+// it matches `.save-all.save-all--suppress` in CSS. Cleared on mouseleave.
+function closeSaveAllMenu() {
+  elements.saveAllWrap.classList.add("save-all--suppress");
+  document.activeElement?.blur();
+}
+
+function clearSaveAllMenuSuppress() {
+  elements.saveAllWrap.classList.remove("save-all--suppress");
 }
 
 async function saveCurrentWindow() {

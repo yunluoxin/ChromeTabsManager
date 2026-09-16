@@ -27,7 +27,14 @@
 
       <section class="toolbar snapshots-toolbar">
         <input id="search" type="search" placeholder="搜索快照名称">
-        <button id="saveAll" class="primary">保存所有窗口</button>
+        <div class="save-all">
+          <button id="saveAll" class="primary">保存所有窗口</button>
+          <div id="saveAllMenu" class="save-all__menu" role="menu" hidden>
+            <button type="button" class="save-all__menu-item" role="menuitem" data-scope="all">全部</button>
+            <button type="button" class="save-all__menu-item" role="menuitem" data-scope="screen">仅当前屏幕</button>
+            <button type="button" class="save-all__menu-item" role="menuitem" data-scope="screenVisible">仅当前屏幕（去挡）</button>
+          </div>
+        </div>
         <button id="saveCurrentWindow">保存当前窗口</button>
         <button id="importButton">导入快照</button>
         <input id="importFile" type="file" accept=".json,application/json" hidden>

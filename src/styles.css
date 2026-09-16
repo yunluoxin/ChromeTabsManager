@@ -509,6 +509,14 @@ small {
   display: flex;
 }
 
+/* Snapshots toolbar uses flex on the section itself, so without inline-flex
+ * the wrapper would stretch to fill the row and the menu would span the full
+ * toolbar width. Inline-flex keeps the trigger at content width; menu still
+ * uses width:max-content to expand beyond it if its labels need more room. */
+.snapshots-toolbar .save-all {
+  display: inline-flex;
+}
+
 .save-all > .action-button {
   /* Fill the .quick-actions grid cell — without width:100% the inline-flex
    * button collapses to its label width and leaves a gap on the right. */
