@@ -4,7 +4,7 @@
 import { formatActionSummary } from "./action-summary.js";
 import { api, queryLastFocusedActiveTab, sendMessage as sendExtensionMessage, SUPPORTS_SCREEN_INFO } from "./chrome-api.js";
 import { formatSnapshotLabel } from "./tab-snapshot.js";
-import { formatWindowSizeLabel } from "./window-bounds.js";
+import { formatBoundsLabel, formatWindowSizeLabel } from "./window-bounds.js";
 import { THEMES, applyTheme, getStoredTheme, setStoredTheme, subscribeThemeChange, subscribeSystemChange } from "./theme.js";
 import { showToast } from "./toast.js";
 
@@ -672,9 +672,12 @@ function pinOpenButtons() {
 function renderPreviewWindow(window, index) {
   const tabs = Array.isArray(window.tabs) ? window.tabs : [];
   const isIncognito = window.incognito === true;
-  const sizeLabel = formatWindowSizeLabel(window.bounds);
-  const sizeSegment = sizeLabel
-    ? ` <span class="preview-window__size">(${escapeHtml(sizeLabel)})</span>`
+  // Normal windows show their captured size; maximized / fullscreen / minimized
+  // show the state label instead because the saved size wouldn't match what the
+  // user actually sees after restore.
+  const metaLabel = formatWindowSizeLabel(window.bounds) || formatBoundsLabel(window.bounds);
+  const sizeSegment = metaLabel
+    ? ` <span class="preview-window__size">(${escapeHtml(metaLabel)})</span>`
     : "";
   const rows = tabs.map((tab, tabIndex) => {
     const isActive = tabIndex === window.activeIndex;
