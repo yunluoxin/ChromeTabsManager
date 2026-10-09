@@ -31,14 +31,17 @@
             <strong id="tabCount">…</strong>
             <span>标签</span>
           </span>
-          <span class="hero-stats__chevron" aria-hidden="true">›</span>
+          <span class="hero-stats__cta" aria-hidden="true">
+            管理
+            <span class="hero-stats__chevron" aria-hidden="true"></span>
+          </span>
         </button>
       </header>
 
       <section class="actions">
         <div class="quick-actions">
           <div class="save-all">
-            <button id="saveAll" class="action-button">
+            <button id="saveAll" class="action-button action-button--save">
               <span class="action-button__label">保存所有窗口</span>
               <span class="action-button__spinner" aria-hidden="true"></span>
               <span class="action-button__check" aria-hidden="true">✓</span>
@@ -49,13 +52,13 @@
               <button type="button" class="save-all__menu-item" role="menuitem" data-scope="screenVisible">仅当前屏幕（去挡）</button>
             </div>
           </div>
-          <button id="saveCurrentWindow" class="action-button">
+          <button id="saveCurrentWindow" class="action-button action-button--save">
             <span class="action-button__label">保存当前窗口</span>
             <span class="action-button__spinner" aria-hidden="true"></span>
             <span class="action-button__check" aria-hidden="true">✓</span>
           </button>
         </div>
-        <button id="discardAll" class="action-button action-button--ghost">
+        <button id="discardAll" class="action-button action-button--danger">
           <span class="action-button__label">释放所有标签内存</span>
           <span class="action-button__spinner" aria-hidden="true"></span>
           <span class="action-button__check" aria-hidden="true">✓</span>
@@ -66,7 +69,10 @@
         <div class="snapshot-section__head">
           <h2>快照</h2>
           <span id="snapshotCount" class="muted"></span>
-          <button id="openSnapshotManager" class="snapshot-manage-button" title="打开快照管理页">管理</button>
+          <button id="openSnapshotManager" class="snapshot-manage-button" title="打开快照管理页" aria-label="打开快照管理页">
+            <span class="snapshot-manage-button__icon" aria-hidden="true">▤</span>
+            管理全部
+          </button>
         </div>
         <div id="snapshotList" class="snapshot-list"></div>
       </section>
