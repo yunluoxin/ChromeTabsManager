@@ -1,4 +1,4 @@
-// Upload an existing Firefox XPI to AMO's unlisted-signing endpoint.
+// Build the Firefox XPI and upload it to AMO's unlisted-signing endpoint.
 //
 // This intentionally does not use web-ext: the repository already produces
 // the final XPI, and Node 20+ provides the HTTP, FormData, and File APIs we
@@ -11,7 +11,7 @@
 
 import { createHash, createHmac } from "node:crypto";
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -35,7 +35,6 @@ Required environment variables:
   AMO_API_SECRET    API secret from the AMO API credentials page
 
 Usage:
-  npm run pack:firefox
   AMO_API_KEY=... AMO_API_SECRET=... npm run sign:firefox
 
 Options:
@@ -51,6 +50,7 @@ Options:
 function parseArgs(argv) {
   const options = {
     input: defaultInput,
+    inputExplicit: false,
     output: undefined,
     id: undefined,
     amoBaseUrl: defaultAmoBaseUrl
@@ -66,6 +66,7 @@ function parseArgs(argv) {
     const value = argv[index + 1];
     if (argument === "--input") {
       options.input = value;
+      options.inputExplicit = true;
       index += 1;
     } else if (argument === "--output") {
       options.output = value;
@@ -89,6 +90,48 @@ function requireOptionValue(option, value) {
     throw new Error(`${option} requires a value.`);
   }
   return value;
+}
+
+async function prepareInputXpi(options) {
+  if (options.inputExplicit) {
+    try {
+      await access(options.input);
+      return;
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new Error(`Input XPI does not exist: ${options.input}.`);
+      }
+      throw error;
+    }
+  }
+
+  console.log("Running npm run pack:firefox before signing...");
+  try {
+    const result = await execFileAsync("npm", ["run", "pack:firefox"], {
+      cwd: root,
+      maxBuffer: 10 * 1024 * 1024
+    });
+    if (result.stdout) {
+      process.stdout.write(result.stdout);
+    }
+    if (result.stderr) {
+      process.stderr.write(result.stderr);
+    }
+  } catch (error) {
+    if (error.stdout) {
+      process.stdout.write(error.stdout);
+    }
+    if (error.stderr) {
+      process.stderr.write(error.stderr);
+    }
+    throw new Error(`Automatic Firefox packaging failed: ${error.message}`);
+  }
+
+  try {
+    await access(options.input);
+  } catch {
+    throw new Error(`Packaging completed, but the XPI was not created: ${options.input}`);
+  }
 }
 
 function base64Url(value) {
@@ -441,6 +484,7 @@ async function downloadSignedXpi({
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   options.input = path.resolve(root, requireOptionValue("--input", options.input));
+  await prepareInputXpi(options);
 
   const apiKey = process.env.AMO_API_KEY ?? process.env.WEB_EXT_API_KEY;
   const apiSecret = process.env.AMO_API_SECRET ?? process.env.WEB_EXT_API_SECRET;

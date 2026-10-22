@@ -100,19 +100,13 @@ npm run dev:firefox -- --watch
    ```
 
    保存后执行 `source ~/.zshrc`，或者重新打开终端。
-3. 先生成未签名包：
-
-   ```bash
-   npm run pack:firefox
-   ```
-
-4. 运行签名脚本：
+3. 运行签名脚本：
 
    ```bash
    npm run sign:firefox
    ```
 
-脚本会上传 `dist/chrome-history-tab-manager-firefox.xpi`，等待 AMO 验证和签名，然后按 manifest 版本生成文件，例如 `dist/chrome-history-tab-manager-firefox-v0.1.0-signed.xpi`。最后在 `about:addons` → 齿轮 → **从文件安装附加组件**中选择签名后的文件。API secret 只通过环境变量传入，不要写进仓库。
+每次运行这个命令，脚本都会先执行一次 `npm run pack:firefox`，无论默认 `.xpi` 是否已经存在，然后再上传最新产物。随后等待 AMO 验证和签名，并按 manifest 版本生成文件，例如 `dist/chrome-history-tab-manager-firefox-v0.1.0-signed.xpi`。最后在 `about:addons` → 齿轮 → **从文件安装附加组件**中选择签名后的文件。API secret 只通过环境变量传入，不要写进仓库。
 
 命令行临时设置的同名变量会覆盖 `~/.zshrc` 中的值。例如：
 
@@ -121,6 +115,8 @@ AMO_API_KEY='临时 issuer' AMO_API_SECRET='临时 secret' npm run sign:firefox
 ```
 
 后续发布新版本时，先更新 `platforms/firefox/manifest.json` 的 `version`；默认签名文件名也会随之变化。
+
+如果使用 `--input` 指定其他 `.xpi`，脚本会直接签名该文件，不会自动重建默认产物。
 
 也可以签名其他最终产物：
 
