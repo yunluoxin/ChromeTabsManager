@@ -87,6 +87,51 @@ npm run dev:firefox -- --watch
 
 `platforms/firefox/manifest.json` 里固定了 `browser_specific_settings.gecko.id`，因此无论临时加载还是永久安装、重启或重装，扩展 ID 都不变，`storage.local` 里的标签年龄元数据和快照都会保留。
 
+### AMO 自分发签名（普通 Firefox）
+
+如果不想使用 Developer Edition，也可以把已有的 `.xpi` 上传给 AMO 做**非公开签名**，再自行安装。仓库里的脚本直接处理最终产物，不需要 `web-ext`：
+
+1. 在 AMO 开发者中心创建 API 凭据，得到 API issuer 和 API secret。
+2. 推荐把凭据写入 `~/.zshrc`，脚本会优先读取当前 shell 导出的变量：
+
+   ```bash
+   export AMO_API_KEY='你的 API issuer'
+   export AMO_API_SECRET='你的 API secret'
+   ```
+
+   保存后执行 `source ~/.zshrc`，或者重新打开终端。
+3. 先生成未签名包：
+
+   ```bash
+   npm run pack:firefox
+   ```
+
+4. 运行签名脚本：
+
+   ```bash
+   npm run sign:firefox
+   ```
+
+脚本会上传 `dist/chrome-history-tab-manager-firefox.xpi`，等待 AMO 验证和签名，然后按 manifest 版本生成文件，例如 `dist/chrome-history-tab-manager-firefox-v0.1.0-signed.xpi`。最后在 `about:addons` → 齿轮 → **从文件安装附加组件**中选择签名后的文件。API secret 只通过环境变量传入，不要写进仓库。
+
+命令行临时设置的同名变量会覆盖 `~/.zshrc` 中的值。例如：
+
+```bash
+AMO_API_KEY='临时 issuer' AMO_API_SECRET='临时 secret' npm run sign:firefox
+```
+
+后续发布新版本时，先更新 `platforms/firefox/manifest.json` 的 `version`；默认签名文件名也会随之变化。
+
+也可以签名其他最终产物：
+
+```bash
+AMO_API_KEY='你的 API issuer' \
+AMO_API_SECRET='你的 API secret' \
+npm run sign:firefox -- \
+  --input /path/to/addon.xpi \
+  --output /path/to/addon-signed.xpi
+```
+
 ## Development
 
 Run pure module tests:
@@ -107,4 +152,5 @@ Assemble / watch the Firefox build:
 npm run dev:firefox            # one-shot sync to dist/firefox
 npm run dev:firefox -- --watch # re-sync on change
 npm run pack:firefox           # build an unsigned .xpi for permanent install
+npm run sign:firefox           # AMO self-distribution signing of the XPI
 ```
